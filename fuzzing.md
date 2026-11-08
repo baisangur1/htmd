@@ -1,11 +1,18 @@
 Fuzzing strategy
 ================
 
-This document specifies how htmd is fuzzed. The fuzzer is an executable check
-of [translation_approach.md](translation_approach.md): wherever that document
-says what the Faithful translation of some HTML must be, the fuzzer searches for
+This document specifies a proposed fuzzing strategy for htmd. When implemented,
+the fuzzer will be an executable check of
+[translation_approach.md](translation_approach.md): wherever that document says
+what the Faithful translation of some HTML must be, the fuzzer searches for
 HTML which violates it. Wherever that document calls a case lossy or
 unspecified, the fuzzer must not report it.
+
+**Implementation status:** this checkout has no `fuzz/` directory. The target,
+generator, normalizer, corpus, dictionary, and fuzz-specific manifests described
+below are requirements for a future implementation, not verified repository
+artifacts. Root manifest and source claims were checked against the current
+checkout; details that depend on missing fuzz files remain unverified.
 
 Review history
 --------------
@@ -14,11 +21,13 @@ Review history
 | ----- | -------- | ----------------- |
 | 1 | — | Initial specification |
 | 2 | 18 | Seeds-friendly option prefix; lists out of the generator; emphasis whitespace, code-block LF and table header normalized; one-sided matches for implied `<p>` and URLs; scope narrowed for iframe/noscript/textarea/script, nested blocks, template and CR added; pinned deps |
+| 3 | 2 | Marked the strategy as proposed and separated verified root dependency versions from unverified fuzz-crate claims |
+| 4 | 0 | No actionable technical defects remained after checking the revised strategy against the available source and translation specification |
 
 Goals and non-goals
 -------------------
 
-The fuzzer finds:
+When implemented, the fuzzer is intended to find:
 
 1. Panics, stack overflows, and other crashes in `HtmlToMarkdown::convert` under
    any options and either translation mode.
@@ -42,7 +51,7 @@ Out of scope:
 Layout
 ------
 
-The fuzzer is a [cargo-fuzz](https://rust-fuzz.github.io/book/cargo-fuzz.html)
+The proposed fuzzer is a [cargo-fuzz](https://rust-fuzz.github.io/book/cargo-fuzz.html)
 crate in `fuzz/`, which drives libFuzzer and requires a nightly toolchain:
 
 * `fuzz/Cargo.toml` declares its own `[workspace]`, so `cargo build`,
@@ -54,20 +63,22 @@ crate in `fuzz/`, which drives libFuzzer and requires a nightly toolchain:
 * `fuzz/seeds/` holds the seed corpus and `fuzz/htmd.dict` the dictionary; both
   are committed. `fuzz/corpus/` and `fuzz/artifacts/` are not.
 
-Its dependencies are `htmd` (by path), `libfuzzer-sys`, `arbitrary`, and
-`html5ever`, `markup5ever_rcdom`, `pulldown-cmark` and `pulldown-cmark-escape`
-pinned with `=` to the versions htmd's `Cargo.lock` resolves (0.39.0,
-0.39.0+unofficial, 0.13.4 and 0.11.0). `fuzz/` has a lockfile of its own, so
-without the pins it could read Markdown with a newer release than htmd is
-tested against.
+The proposed dependencies are `htmd` (by path), `libfuzzer-sys`, `arbitrary`,
+and `html5ever`, `markup5ever_rcdom`, `pulldown-cmark` and
+`pulldown-cmark-escape`. The current root `Cargo.lock` resolves the latter four
+to 0.39.0, 0.39.0+unofficial, 0.13.4 and 0.11.0; pinning those versions in a
+future `fuzz/Cargo.toml` would keep the oracle aligned with this checkout. The
+fuzz manifest and its separate lockfile are absent, so their dependency
+declarations and resolution cannot yet be verified.
 
 Input decoding
 --------------
 
-A fuzz input is a byte string. Its first 13 bytes choose the options, one byte
-per field, in this order: the twelve fields of `Options` in declaration order,
-then `scripting_enabled` on the builder. An input shorter than 13 bytes is
-rejected. Byte 0 always decodes to the default, so a prefix of zero bytes gives
+A fuzz input is a byte string. Its first 13 bytes are intended to choose the
+options, one byte per field, in this order: the twelve fields of `Options` in
+declaration order, then `scripting_enabled` on the builder. An input shorter
+than 13 bytes is rejected. Byte 0 always decodes to the default, so a prefix of
+zero bytes gives
 `Options::default()` with scripting enabled:
 
 * an enum field takes the variant `(d + b) mod n` in declaration order, where
