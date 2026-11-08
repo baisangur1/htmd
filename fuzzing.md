@@ -333,3 +333,156 @@ cargo +nightly fuzz run convert -- -max_len=65536 -timeout=2 -rss_limit_mb=2048
 cargo +nightly fuzz run round_trip -- -max_len=4096 -dict=fuzz/htmd.dict
 cargo +nightly fuzz run round_trip_structured
 ```
+
+Last review: Yunussov Baisangur (Claude 5.5 Opus, medium effort)
+-----------
+**Prompt**:
+> Review the specification in fuzzing.md. Check it against translation_approach.md, the source in src/, and the tests in tests/. Report only findings about fuzzing.md: contradictions, incorrect claims about htmd, html5ever or pulldown-cmark, oracle rules that would report false positives or miss real bugs, and missing cases. Number each finding, give its location in fuzzing.md, and keep each finding to a few sentences. Do not edit any files.
+
+**Output**:
+
+I found 18 problems in `fuzzing.md`. I didn't run any code or edit any files.
+The pulldown-cmark and html5ever behaviour I cite comes from my knowledge of
+those crates, not from their sources; that matters most for #6, #12 and #13.
+Findings are ordered by where they appear in `fuzzing.md`.
+
+1. **L49–52, L222–223 — "reads Markdown exactly as the tests do" is false.**
+   `tests/common/mod.rs:54` (`round_trip`) renders with
+   `CommonMarkOptions::empty()` and default `Options`, not
+   `TABLES | MATH` and the fuzzed options. A fuzz finding with tables, math,
+   Setext or Referenced links therefore can't be reproduced "through
+   `round_trip`" as triage step 1 says. Also, `fuzz/` has its own workspace and
+   lockfile, so `"0.13.4"` may resolve to a newer 0.13.x unless it is pinned.
+   pulldown-cmark is a library and doesn't lock pulldown-cmark-escape's
+   version.
+
+2. **L58–66 — the round-trip targets fuzz options that are lossy by design.**
+   - With `preformatted_code = false`, inline-code whitespace is trimmed and
+     collapsed (`code.rs:145-149`), so `<code> a </code>` fails.
+   - `LinkReferenceStyle::Collapsed`/`Shortcut` use the link text as the
+     label. Two links with the same text but different `href`s both resolve to
+     the first definition. translation_approach.md L546–548 says these styles
+     will be removed.
+
+   Both produce false positives. Fix these options in the round-trip targets,
+   or scope them out.
+
+3. **L68–70 vs L201–205 — seeds won't decode as written.** `Unstructured`
+   takes the option bytes from the front of the input, so a seed file holding
+   only HTML loses its first bytes to `Options`. Seeds need an option prefix.
+   "HTML in" cells also need `␣`/`⏎` decoded. The table rows give only a
+   `<td>…</td>` fragment; the tests wrap it in a one-column table
+   (`translation_approach_tests.rs:471-474`). Used as is, html5ever drops the
+   stray `<td>`.
+
+4. **L207–208 — the Wikipedia page also exceeds the `convert` limit.** It is
+   1.44 MB, against a 64 KiB `-max_len`, so libFuzzer truncates it. Only
+   `Hacker News.html` (43 KB) fits.
+
+5. **L116–120 vs L188 — the generator mostly builds rejected inputs.** It emits
+   `ul`/`ol`/`li`, but the scope rejects any DOM holding them. With about 30
+   tags, 8 levels and 6 children, almost every structured input is thrown away
+   unless `HTMD_FUZZ_LISTS=1`. The generator should leave lists out unless that
+   variable is set.
+
+6. **L114–127, L210–213 — generator and dictionary gaps.**
+   - The text alphabet has no `;` and no letter besides `a`. Text such as
+     `&lt;`/`&#1;` (escaping the links section requires), HTML-block starts
+     like `<div`/`<pre`/`<![CDATA[`, and email autolinks (`@`) are
+     unreachable.
+   - The generator has no `tfoot` or `colgroup`, which the tables section
+     discusses.
+   - Neither the generator nor the dictionary has `class="language-…"`.
+     `code.rs:116-128` turns it into a fence info string. I believe
+     `class="x language-y"` silently loses `x`, and the fuzzer can't reach it.
+
+7. **L152–156, rule 1 — no rule for whitespace moved out of emphasis.**
+   Emphasis step 3 (translation_approach L512) moves leading and trailing
+   whitespace outside the element. `emphasis.rs` strips Unicode whitespace,
+   including the U+00A0 the generator emits. Rule 1 only collapses ASCII
+   whitespace in place, so `<em> a</em>` and `<em> a</em>` are false
+   positives.
+
+8. **L157–160, rule 2 — it hides real bugs.**
+   - Applied to both sides, it maps a body-level `<br>` and `<p><br></p>` to
+     the same tree. Paragraphs row 2 and Blockquotes row 2 exist only to keep
+     that `<p>`, and they could regress unseen.
+   - It should apply to the output side, and only where the tables accept an
+     inserted `<p>`.
+   - "Inline children" is undefined: it isn't clear whether comments, `<img>`
+     or a verbatim `<div>` count, and with comments that choice decides
+     whether `a<!--c-->b` passes.
+
+9. **L161–164, rule 3 — the citation doesn't hold.** "Translating HTML nodes"
+   names only `<em>`/`<strong>`. translation_approach.md mentions the
+   `<i>`/`<em>` merge only for Pure mode (L486–489). By the spec's own policy
+   at L149–150, Faithful losing `<i>` is a gap in translation_approach.md. It
+   needs a row there, not just a test.
+
+10. **L165–168, rule 4 — the trailing-LF strip hits the wrong `<pre>`.**
+    - pulldown-cmark code blocks are always `<pre><code>`, so they are never
+      wrapped. A `<pre>` that rule 4 does wrap was written out verbatim as HTML
+      (`pre.rs`) and never got an extra LF.
+    - htmd itself removes one trailing LF from the input (`code.rs:61`). So
+      `<pre><code>a⏎</code></pre>` fails unless the strip runs on both sides.
+    - Rules 4 and 5 cite CommonMark/pulldown-cmark, not translation_approach.md,
+      which L148–150 requires.
+
+11. **L169–171, rule 5 — `escape_href` gives HTML source, not a value.** Its
+    output contains `&amp;` and `&#x27;`, but attributes are compared after
+    parsing, so every `href`/`src` with `&` or `'` fails. It also runs on every
+    input `href`/`src`, though pulldown-cmark escapes only destinations it
+    writes. Links and images htmd writes as HTML (extra attributes, missing
+    `alt`, `title=""`) pass through verbatim, so `<img src="é">` would fail.
+
+12. **L99 — step 5 is ill-defined.** Rules 4 and 5 are "input side" / "output
+    side" only, so `N` is not one function. H1 is the output in step 4 and the
+    input in step 5. Applying rule 5 to H1 again would turn `&amp;` into
+    `&amp;amp;`.
+
+13. **L138–143 — the comparison misses or mishandles some content.**
+    - Only `<body>` children are compared. Comments before `<html>` or after
+      `</html>` (children of Document) and after `</body>` (children of
+      `html`) are ignored. htmd walks and emits them (`dom_walker.rs:31`), so
+      dropping them goes unseen.
+    - `<template>` content is in `template_contents`, not in its children; the
+      spec doesn't say whether it is compared.
+    - `&#13;` yields a real U+000D in H0. In a code block htmd can't encode it,
+      and it comes back as LF. In `<pre>`, where rule 1 doesn't apply, the
+      "compare equal" claim fails.
+
+14. **L190 — the `<iframe>` exclusion contradicts translation_approach.md.**
+    Paragraphs row 1 specifies `<p><iframe src="u">a</iframe></p>`, and the
+    seeds include that row, yet the scope rejects any `<iframe>`.
+
+15. **L189–191 — some exclusions are too broad.**
+    - `<noscript>` is raw text only with scripting on (translation_approach
+      L168). With `scripting_enabled = false` it is ordinary DOM and in scope.
+    - L133–136 treats `<textarea>` like `<pre>`, so it belongs in the "inline
+      context with a line ending" row, not the blanket row with
+      `<script>`/`<style>`.
+    - In a block context, `<script>`/`<style>` are specified type 1 HTML
+      blocks.
+
+16. **L186–193 — one unspecified case is missing from the scope.**
+    translation_approach L160–166 marks two cases unspecified, and neither is
+    in the table:
+    - a comment, CDATA or PI holding blank lines inside a type 6 block, e.g.
+      `<div><!--a⏎⏎b--></div>`;
+    - a comment holding `</pre>` and then a newline inside `<pre>`.
+
+    Rule 6 doesn't cover them: a blank line ends the block, and `&#10;` isn't
+    decoded inside a comment. They will be reported as false positives.
+
+17. **L145–177 — tables with a header row in `<tbody>`.** `table.rs:259-266`
+    makes a leading `<th>` row the GFM header even when it sits in `<tbody>`,
+    or in a bare `<tr>` the parser wraps. pulldown-cmark writes it back inside
+    `<thead>`. translation_approach L313–319 accepts that shape, but `N` has no
+    rule for table sections.
+    `<table><tr><th>h</th></tr><tr><td>a</td></tr></table>` fails.
+
+18. **L80–82 — the Referenced state isn't stored in `HtmlToMarkdown`.** It
+    lives in a thread-local stack (`anchor.rs:38-40`), so "by the same
+    `HtmlToMarkdown`" is the wrong test. A leak would also cross converters and
+    inputs. libFuzzer runs inputs in one process, so a leak could show up on a
+    later, unrelated input that `tmin` can't reproduce alone.
