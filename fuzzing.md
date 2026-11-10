@@ -8,11 +8,13 @@ what the Faithful translation of some HTML must be, the fuzzer searches for
 HTML which violates it. Wherever that document calls a case lossy or
 unspecified, the fuzzer must not report it.
 
-**Implementation status:** this checkout has no `fuzz/` directory. The target,
-generator, normalizer, corpus, dictionary, and fuzz-specific manifests described
-below are requirements for a future implementation, not verified repository
+**Implementation status:** this checkout has a `fuzz/` directory containing a
+minimal manifest, lockfile, and empty `fuzz_target_1` target. The target,
+generator, normalizer, corpus, dictionary, and additional targets described
+below are requirements for a future implementation, not present repository
 artifacts. Root manifest and source claims were checked against the current
-checkout; details that depend on missing fuzz files remain unverified.
+checkout; details that depend on the missing fuzz implementation remain
+unverified.
 
 Review history
 --------------
@@ -65,11 +67,12 @@ crate in `fuzz/`, which drives libFuzzer and requires a nightly toolchain:
 
 The proposed dependencies are `htmd` (by path), `libfuzzer-sys`, `arbitrary`,
 and `html5ever`, `markup5ever_rcdom`, `pulldown-cmark` and
-`pulldown-cmark-escape`. The current root `Cargo.lock` resolves the latter four
-to 0.39.0, 0.39.0+unofficial, 0.13.4 and 0.11.0; pinning those versions in a
-future `fuzz/Cargo.toml` would keep the oracle aligned with this checkout. The
-fuzz manifest and its separate lockfile are absent, so their dependency
-declarations and resolution cannot yet be verified.
+`pulldown-cmark-escape`. The current `fuzz/Cargo.toml` declares only `htmd` and
+`libfuzzer-sys`; the generator and oracle dependencies are not yet declared.
+The current root lockfile resolves the latter four to 0.39.0,
+0.39.0+unofficial, 0.13.4 and 0.11.0; the current fuzz lockfile contains only
+the dependencies of the minimal manifest. Pinning those root-lockfile versions
+in the future fuzz manifest would keep the oracle aligned with this checkout.
 
 Input decoding
 --------------
@@ -333,6 +336,129 @@ cargo +nightly fuzz run convert -- -max_len=65536 -timeout=2 -rss_limit_mb=2048
 cargo +nightly fuzz run round_trip -- -max_len=4096 -dict=fuzz/htmd.dict
 cargo +nightly fuzz run round_trip_structured
 ```
+
+Mariya Belyavskaya — Review iterations
+---------------------------------------
+
+| Iteration | Author | Model | Findings | Summary of changes |
+| --------- | ------ | ----- | -------- | ------------------ |
+| 3 | Mariya Belyavskaya | GPT-6 Luna | 2 | Marked the strategy as proposed and separated verified root dependency versions from unverified fuzz-crate claims. |
+| 4 | Mariya Belyavskaya | GPT-6 Luna | 0 | No actionable technical defects remained after checking the revised strategy against the available source and translation specification. |
+| 5 | Mariya Belyavskaya | GPT-5.6 Luna | 2 | Corrected the implementation-status and dependency claims to match the present minimal fuzz crate. |
+
+### Recovered material for iterations 3 and 4
+
+The exact prompts and complete model responses for iterations 3 and 4 were not
+recoverable from Git history, the deleted-file history, or the available
+conversation artifacts. The following review-history record was recovered:
+
+> Round 3 — 2 findings:
+>
+> 1. **Fuzzing strategy opening and Layout:** the present-tense claims that a
+>    fuzzer and its files exist contradicted the repository, which has no
+>    `fuzz/` directory. Accepted; labeled the document as a proposed strategy
+>    and marked the implementation status.
+> 2. **Dependency paragraph:** pins and the separate fuzz lockfile were stated
+>    as facts despite the missing manifest and lockfile. Accepted; recast the
+>    four versions as root-lockfile resolutions and marked the fuzz declarations
+>    unverified.
+>
+> No stylistic preferences were treated as defects. The decoder and target
+> descriptions were also unverified, but were covered by the single
+> implementation-status finding rather than counted as additional defects.
+>
+> Round 4 — 0 actionable findings. The revised section was rechecked against
+> `Options`, the root lockfile, the translation specification and tests. The
+> text distinguished required future behavior from verified implementation. No
+> correction was needed. Requests to add further generic fuzzing guidance were
+> rejected as speculative and outside the concrete defects requested.
+
+The recovered record shows that both iteration 3 findings were accepted and
+applied; iteration 4 required no correction. No complete iteration 3 or 4
+response is available to reproduce here.
+
+Final LLM review
+----------------
+
+- **Author:** Mariya Belyavskaya
+- **Model:** GPT-5.6 Luna
+- **Reasoning effort:** Not exposed by runtime
+- **Review prompt:**
+
+  > Review only the Fuzzing strategy section in fuzzing.md. Check it against the actual repository implementation, source code, tests, Cargo configuration, and translation_approach.md.
+  >
+  > Identify only concrete, actionable technical errors, contradictions, missing cases that affect correctness, or reproducibility problems. Do not suggest stylistic rewrites, generic fuzzing recommendations, or speculative improvements.
+  >
+  > Pay particular attention to whether the document distinguishes implemented functionality from proposed future functionality, whether dependency versions are accurately described, whether the documented targets and input decoding agree with the source code, and whether the comparison and normalization rules match the translation specification and tests.
+  >
+  > For each finding, provide its exact location, explain the technical problem, and suggest the smallest necessary correction.
+  >
+  > Do not invent repository files, implementation details, test results, or build results. If a detail cannot be verified from the current checkout, explicitly say so.
+  >
+  > If no actionable technical defects remain, state that clearly and explain briefly what was verified and what remains unverified.
+
+- **Final review output:**
+
+  The revised Fuzzing strategy section has no actionable technical defects remaining. I verified the implementation-status statement against the present checkout: `fuzz/` contains `Cargo.toml`, `Cargo.lock`, and the empty `fuzz_target_1` target, but it does not contain the proposed shared implementation, generator, normalizer, corpus, dictionary, or additional targets. I also verified the current `fuzz/Cargo.toml`: it declares only the path dependency on `htmd` and `libfuzzer-sys`, so the proposed generator and oracle dependencies remain future requirements rather than current manifest declarations. The root source, tests, Cargo configuration, root lockfile, and `translation_approach.md` support the remaining documented claims that were checked. The present fuzz target compiles and runs one iteration, but the proposed fuzzing strategy is not implemented and its future targets and oracles remain unverified.
+
+- **Findings accepted and applied:**
+
+  1. The implementation-status paragraph incorrectly said that `fuzz/` was absent. It now identifies the present minimal fuzz crate and distinguishes it from the proposed implementation.
+  2. The dependency paragraph incorrectly said that the fuzz manifest and lockfile were absent. It now records the actual manifest declarations and distinguishes the root lockfile versions from the minimal fuzz lockfile.
+
+- **Findings rejected:** None.
+
+Compilation verification
+------------------------
+
+**Prompt:**
+
+> Verify that you can compile and run the project in the current git repo.
+
+**Actual model response:**
+
+I verified that the current project compiles and runs successfully. `cargo
+build`, `cargo clippy -- --deny warnings`, and `cargo test` all exited with
+status 0. The test suite reported 36 unit tests passed, 85 tests passed in the
+first integration group, all remaining integration and doctests passed, and
+one test was ignored.
+
+The present fuzz crate also compiled successfully with `cargo build
+--manifest-path fuzz/Cargo.toml`, and `cargo +nightly fuzz run fuzz_target_1
+-- -runs=1` completed successfully. This exercised only the existing empty
+`fuzz_target_1`; the proposed `convert`, `round_trip`, and
+`round_trip_structured` targets are not present and were not tested.
+
+**Commands executed and results:**
+
+```text
+cargo build
+exit 0; Finished `dev` profile
+
+cargo clippy -- --deny warnings
+exit 0; Finished `dev` profile; no denied warnings
+
+cargo test
+exit 0; all test groups passed; 36 unit tests passed, 85 tests passed in the
+first integration group, remaining integration and doctests passed, 1 ignored
+
+cargo build --manifest-path fuzz/Cargo.toml
+exit 0; Finished `dev` profile
+
+cargo +nightly fuzz run fuzz_target_1 -- -runs=1
+exit 0; empty target completed one bounded fuzz run
+
+cargo fuzz --version
+exit 0; cargo-fuzz 0.13.2
+
+rustup toolchain list
+exit 0; stable and nightly toolchains available
+```
+
+The root project and the only present fuzz target therefore compiled and ran.
+The future fuzz targets and their generator, normalizer, corpus, dictionary, and
+comparison oracles could not be verified because they are not present in the
+current checkout.
 
 Last review: Yunussov Baisangur (Claude 5.5 Opus, medium effort)
 -----------
