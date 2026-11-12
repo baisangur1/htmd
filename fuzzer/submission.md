@@ -21,7 +21,7 @@ Draft submission
   unverified fuzz-crate claims. Verified the build, including a local
   cargo-fuzz crate.
 * Arsen Alimzhan: Ran the round 6 review of the running and corpus portions
-  with Codex (GPT-6): seed initialization and timeout interpretation (proposed,
+  with GPT-6 (run in Codex): seed initialization and timeout interpretation (proposed,
   not yet applied).
 
 ### Compiler test
@@ -101,7 +101,7 @@ current checkout.
 | 3 | Mariya Belyavskaya | GPT-6 Luna | 2 | Marked the strategy as proposed and separated verified root dependency versions from unverified fuzz-crate claims |
 | 4 | Mariya Belyavskaya | GPT-6 Luna | 0 | No actionable technical defects remained after checking the revised strategy against the available source and translation specification |
 | 5 | Mariya Belyavskaya | GPT-5.6 Luna | 2 | Implementation status and dependency paragraph described a minimal fuzz crate; reverted after review because that crate is not committed |
-| 6 | Arsen Alimzhan | Codex (GPT-6) | 2 | Seed initialization and timeout interpretation; proposed, not yet applied |
+| 6 | Arsen Alimzhan | GPT-6 (run in Codex) | 2 | Seed initialization and timeout interpretation; proposed, not yet applied |
 
 ### Round 2 review (Baisangur Yunussov)
 
@@ -324,7 +324,7 @@ Round 4 — 0 actionable findings. Rechecked the revised section against `Option
 
 Round 6, by Arsen Alimzhan.
 
-- **Model:** Codex (GPT-6)
+- **Model:** GPT-6 (run in Codex)
 
 **Prompt:**
 
