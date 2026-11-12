@@ -1,107 +1,63 @@
 Fuzzing strategy
 ================
 
-This document specifies a proposed fuzzing strategy for htmd. When implemented,
-the fuzzer will be an executable check of
-[translation_approach.md](../translation_approach.md): wherever that document says
-what the Faithful translation of some HTML must be, the fuzzer searches for
-HTML which violates it. Wherever that document calls a case lossy or
-unspecified, the fuzzer must not report it.
-
-**Implementation status:** this branch has no `fuzz/` directory. A minimal
-cargo-fuzz crate (manifest, lockfile, and an empty `fuzz_target_1`) exists only
-in the round 5 reviewer's local checkout and is not committed. The targets,
-generator, normalizer, corpus, dictionary, and fuzz manifest described below
-are requirements for a future implementation, not repository artifacts. Root manifest and source claims were checked against the current
-checkout; details that depend on the missing fuzz implementation remain
-unverified.
+This document specifies a fuzzing strategy for htmd. When implemented, the fuzzer will be an executable check of [translation_approach.md](../translation_approach.md): wherever that document says what the Faithful translation of some HTML must be, the fuzzer searches for HTML which violates it. Wherever that document calls a case lossy or unspecified, the fuzzer must not report it.
 
 Goals and non-goals
 -------------------
 
 When implemented, the fuzzer is intended to find:
 
-1. Panics, stack overflows, and other crashes in `HtmlToMarkdown::convert` under
-   any options and either translation mode.
+1. Panics, stack overflows, and other crashes in `HtmlToMarkdown::convert` under any options and either translation mode.
 2. Conversions which do not terminate in reasonable time or memory.
-3. Faithful translations which do not round-trip: HTML which, translated to
-   CommonMark by htmd and read back to HTML by pulldown-cmark, is not the HTML
-   it started as.
+3. Faithful translations which do not round-trip: HTML which, translated to CommonMark by htmd and read back to HTML by pulldown-cmark, is not the HTML it started as.
 4. Non-determinism: the same input and options giving two results.
 
 Out of scope:
 
-* Pure mode correctness. Pure mode drops what CommonMark cannot spell, so no
-  round-trip oracle exists for it; it is fuzzed for crashes only.
-* Custom handlers registered through `add_handler` and `skip_tags`. A handler
-  may write output this design does not describe (see "Translating HTML nodes"),
+* Pure mode correctness. Pure mode drops what CommonMark cannot spell, so no round-trip oracle exists for it; it is fuzzed for crashes only.
+* Custom handlers registered through `add_handler` and `skip_tags`. A handler may write output this design does not describe (see "Translating HTML nodes"),
   so a mismatch there says nothing about htmd.
 * The `ElementHandler` event API.
-* Correctness of html5ever and pulldown-cmark. Both are treated as reference
-  implementations; a bug in either is reported upstream (see "Triage").
+* Correctness of html5ever and pulldown-cmark. Both are treated as reference implementations; a bug in either is reported upstream (see "Triage").
 
 Layout
 ------
 
-The proposed fuzzer is a [cargo-fuzz](https://rust-fuzz.github.io/book/cargo-fuzz.html)
-crate in `fuzz/`, which drives libFuzzer and requires a nightly toolchain:
+The fuzzer is a [cargo-fuzz](https://rust-fuzz.github.io/book/cargo-fuzz.html) crate in `fuzz/`, which drives libFuzzer and requires a nightly toolchain:
 
-* `fuzz/Cargo.toml` declares its own `[workspace]`, so `cargo build`,
-  `cargo clippy` and `cargo test` in the repository root neither build nor
-  require it, and CI is unchanged.
-* `fuzz/src/lib.rs` holds what the targets share: option decoding, the HTML
-  generator, the scope check, and the normalizer.
+* `fuzz/Cargo.toml` declares its own `[workspace]`, so `cargo build`, `cargo clippy` and `cargo test` in the repository root neither build nor require it, and CI is unchanged.
+* `fuzz/src/lib.rs` holds what the targets share: option decoding, the HTML generator, the scope check, and the normalizer.
 * `fuzz/fuzz_targets/` holds one file per target.
-* `fuzz/seeds/` holds the seed corpus and `fuzz/htmd.dict` the dictionary; both
-  are committed. `fuzz/corpus/` and `fuzz/artifacts/` are not.
-
-The proposed dependencies are `htmd` (by path), `libfuzzer-sys`, `arbitrary`,
-and `html5ever`, `markup5ever_rcdom`, `pulldown-cmark` and
-`pulldown-cmark-escape`. The root `Cargo.lock` resolves the latter four to
-0.39.0, 0.39.0+unofficial, 0.13.4 and 0.11.0; pinning those versions in the
-future `fuzz/Cargo.toml` would keep the oracle aligned with this checkout. The
-fuzz manifest and its lockfile are not committed, so their dependency
-declarations and resolution cannot yet be verified.
+* `fuzz/seeds/` holds the seed corpus and `fuzz/htmd.dict` the dictionary.
 
 Input decoding
 --------------
 
-A fuzz input is a byte string. Its first 13 bytes are intended to choose the
-options, one byte per field, in this order: the twelve fields of `Options` in
-declaration order, then `scripting_enabled` on the builder. An input shorter
-than 13 bytes is rejected. Byte 0 always decodes to the default, so a prefix of
+A fuzz input is a byte string. Its first 13 bytes are intended to choose the options, one byte per field, in this order: the twelve fields of `Options` in
+declaration order, then `scripting_enabled` on the builder. An input shorter than 13 bytes is rejected. Byte 0 always decodes to the default, so a prefix of
 zero bytes gives
 `Options::default()` with scripting enabled:
 
-* an enum field takes the variant `(d + b) mod n` in declaration order, where
-  `d` is the index of its default, `b` the byte and `n` the number of variants;
-* `ul_bullet_spacing` and `ol_number_spacing` take the default plus the byte,
-  wrapping, so values outside 1 through 4 exercise the clamping `options.rs`
-  documents;
-* `preformatted_code` and `scripting_enabled` take the default, flipped when
-  the byte is odd.
+* an enum field takes the variant `(d + b) mod n` in declaration order, where `d` is the index of its default, `b` the byte and `n` the number of variants;
+* `ul_bullet_spacing` and `ol_number_spacing` take the default plus the byte, wrapping, so values outside 1 through 4 exercise the clamping `options.rs` documents;
+* `preformatted_code` and `scripting_enabled` take the default, flipped when the byte is odd.
 
 In the round-trip targets three fields ignore their byte:
 
 * `translation_mode` is `TranslationMode::Faithful`;
-* `preformatted_code` is `true`. With `false`, inline code has its whitespace
-  trimmed and collapsed by design (`options.rs`), which no round trip survives;
-* `link_reference_style` is `LinkReferenceStyle::Full`. `Collapsed` and
-  `Shortcut` use the link text as the label, so two links with the same text
-  and different destinations read back with the first one's, and
-  translation_approach.md marks both styles for removal ("Links").
+* `preformatted_code` is `true`. With `false`, inline code has its whitespace trimmed and collapsed by design (`options.rs`), which no round trip survives;
+* `link_reference_style` is `LinkReferenceStyle::Full`. `Collapsed` and `Shortcut` use the link text as the label, so two links with the same text
+  and different destinations read back with the first one's, and translation_approach.md marks both styles for removal ("Links").
 
-The remaining bytes are the HTML. Raw targets take them as UTF-8 and reject an
-input which is not valid UTF-8, since `convert` accepts only a `&str`.
-Structured targets pass them to `arbitrary::Unstructured` and build the HTML
-with the generator below.
+The remaining bytes are the HTML. Raw targets take them as UTF-8 and reject an input which is not valid UTF-8, since `convert` accepts only a `&str`. Structured targets pass them to `arbitrary::Unstructured` and build the HTML with the generator below.
 
 Targets
 -------
 
 ### `convert`
 
-Converts raw HTML under any options. The target fails if:
+Converts raw HTML under any options. The target fails if:w
 
 1. `convert` panics, overflows the stack, or returns `Err`;
 2. a second conversion of the same input, by a freshly built `HtmlToMarkdown`
@@ -114,7 +70,7 @@ Converts raw HTML under any options. The target fails if:
 
 Run with `-max_len=65536 -timeout=2 -rss_limit_mb=2048`. The README reports
 16 ms for a 1.37 MB page, so a 64 KiB input taking two seconds is a superlinear
-path, not a slow machine. Arbitrarily deep nesting is in scope: html5ever does
+path. Arbitrarily deep nesting is in scope: html5ever does
 not bound tree depth, and a stack overflow in the DOM walker is a finding.
 
 ### `round_trip`
