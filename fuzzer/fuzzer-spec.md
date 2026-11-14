@@ -12,10 +12,11 @@ The fuzzer finds:
 2. Conversions which do not terminate in reasonable time or memory.
 3. Faithful translations which do not round-trip: HTML which, translated to CommonMark by htmd and read back to HTML by pulldown-cmark, is not the HTML it started as.
 4. Non-determinism: the same input and options giving two results.
+5. Lost text: a letter or digit of the input's text which the translation drops, repeats or moves (see "Text").
 
 Out of scope:
 
-* Pure mode correctness. Pure mode drops what CommonMark cannot spell, so no round-trip oracle exists for it; it is fuzzed for crashes only.
+* Pure mode correctness. Pure mode drops what CommonMark cannot spell, so no round-trip oracle exists for it; it is fuzzed for crashes and lost text only.
 * Custom handlers registered through `add_handler` and `skip_tags`. A handler may write output this design does not describe (see "Translating HTML nodes"),
   so a mismatch there says nothing about htmd.
 * The `ElementHandler` event API.
@@ -66,7 +67,10 @@ Converts raw HTML under any options. The target fails if:
    converter, so only a new thread starts from clean state. A leak from an
    earlier input is reported on the input which sees it; when `tmin` cannot
    reproduce such a failure alone, it is reproduced by replaying the inputs of
-   that run in order.
+   that run in order. The new thread gets the stack size of the thread which
+   ran the first conversion, so that a deep input overflows in both or in
+   neither;
+3. the input loses text (see "Text").
 
 Run with `-max_len=65536 -timeout=2 -rss_limit_mb=2048`. `README.md` reports
 16 ms for a 1.37 MB page, so a 64 KiB input taking two seconds is a superlinear
@@ -77,7 +81,8 @@ not bound tree depth, and a stack overflow in the DOM walker is a finding.
 
 Checks the Faithful translation of raw HTML. Given input `H0`:
 
-1. Reject `H0` if it is out of scope (see "Scope").
+1. If `H0` is out of scope (see "Scope"), fail only if it loses text (see
+   "Text"), and stop.
 2. `M1 = convert(H0)`, Faithful mode.
 3. `H1 = render(M1)`, where `render` is pulldown-cmark with
    `ENABLE_TABLES | ENABLE_MATH` — the GFM tables of the "Tables" section and
@@ -110,8 +115,10 @@ The generator builds a tree from the input bytes, then serializes it:
   `<span class="math math-display">`, and elements without a handler (`span`,
   `div`, `del`, `sub`, `sup`, `kbd`, `colgroup`, `col`).
 * Attributes: `href`, `src`, `alt`, `title`, `class`, `id`, `start`, `align`,
-  each present or absent, empty or not. A `class` value is drawn from the text
-  below or is `language-a`, alone or after another class, which a code block
+  each present or absent, empty or not. A non-empty value is drawn from the
+  text below, so that a destination or title can hold a space, a line ending,
+  parentheses, angle brackets, quotes and backslashes; a `class` value may
+  also be `language-a`, alone or after another class, which a code block
   writes as its info string.
 * Comments.
 * Text drawn mostly from characters which are CommonMark syntax somewhere —
@@ -119,28 +126,50 @@ The generator builds a tree from the input bytes, then serializes it:
   `a`, `A`, space, tab, LF, CR, form feed, the Unicode whitespace characters
   U+00A0, U+2003 and U+3000, and a Unicode punctuation character which is not
   ASCII (`¡`), since flanking depends on Unicode punctuation and whitespace.
-  Among them it inserts the words `lt`, `amp`, `copy`, `div`, `pre` and
-  `CDATA`, so the text can spell character references and the starts of HTML
-  blocks of types 1-6.
-* Sequences which are CommonMark block syntax at the start of a line, placed at
-  the start of a text node or after a line ending in it: `1. A`, `1) A`, `* a`,
-  `- a`, `+ a`, `---`, `***`, `___`, `===`, `# a`, `> a`, `` ``` ``, `~~~`,
-  four spaces, `[a]: b` and `| a |`.
+  It adds characters which look like whitespace but are not (U+200B, U+2028,
+  U+FEFF) and characters of two, three and four bytes in UTF-8 (`é`, `中`,
+  `😀`), since a byte offset which splits one panics. Among them it inserts the
+  words `lt`, `amp`, `copy`, `div`, `pre` and `CDATA`, so the text can spell
+  character references and the starts of HTML blocks of types 1-6, and the
+  numbered words `w0`, `w1`, ..., so that the text check names the word lost.
+* Sequences which are CommonMark block syntax at the start of a line: `1. A`,
+  `1) A`, `* a`, `- a`, `+ a`, `---`, `***`, `___`, `===`, `# a`, `> a`,
+  `` ``` ``, `~~~`, four spaces, `[a]: b` and `| a |`. htmd starts a Markdown
+  line not only at a line ending in a text node, so they are placed at the
+  start of a text node, after a line ending in it, and as the first text after
+  a `<br>` and inside a `<li>`, `<td>`, `<th>` or `<blockquote>`.
 * At most 8 levels deep and 6 children per element.
+* One node in about twelve replaced by markup which does not nest: a stray end
+  tag (`</p>`, `</li>`), an unclosed start tag, `<td>` outside a table, or text
+  directly inside `<table>` or `<tr>`.
 
 The generator ignores HTML content models on purpose: `<h1><p>a</p></h1>` and
 `<em><table>` are the inputs the "Translating HTML nodes" section is about.
 Since html5ever repairs such trees, `H0` is the parsed input, never the
 generator's tree.
 
+Half of the generated trees are placed between neighbors which stay the same:
+`<p>before</p>`…`<p>after</p>` at the root, or `b<em>e</em>`…`<em>a</em>f`
+inside a `<p>`. A translation which is right on its own can still change how
+CommonMark reads its neighbors — a `<` which a later sibling closes, a
+delimiter run which pairs with a neighbor's — and only a neighbor shows it.
+
+The target counts the inputs the scope check rejects and prints the count with
+libFuzzer's statistics. A run in which most generated inputs are rejected
+checks the scope table, not htmd, and the generator is changed to produce fewer
+of them.
+
 Comparison
 ----------
 
-Both sides are parsed by html5ever as full documents, with the same
-`scripting_enabled` as the conversion, and compared as trees from the document
-node down: element names, attribute sets (order ignored), text, and comment
-data. A comment before `<html>`, after `</body>` or after `</html>` is outside
-`<body>` but is still written by htmd, so it is compared too. Character
+Both sides are parsed by html5ever as HTML fragments in the context of a
+`<body>` element, with the same `scripting_enabled` as the conversion, and
+compared as trees from the fragment root down: element names, attribute sets
+(order ignored), text, and comment data. `H1` is a fragment, since
+pulldown-cmark writes no doctype, `<html>` or `<body>`; `H0` is parsed the same
+way so that the two compare. The fragment parser ignores a doctype and the
+`<html>`, `<head>` and `<body>` tags, and keeps a comment written before or
+after them in source order. Character
 references are decoded by the parser, so `&#10;` in `M1` and a line feed in
 `H0` compare equal, as the "Translating HTML nodes" section intends.
 
@@ -148,7 +177,7 @@ Each side first goes through the normalizer `N`. Then two rules match the input
 side against the output side, since the difference they accept runs one way
 only:
 
-1. **Implied paragraphs.** In `<body>`, `<blockquote>` and `<li>`, a maximal
+1. **Implied paragraphs.** At the fragment root, in `<blockquote>` and in `<li>`, a maximal
    run of inline children on the input side
    matches the same run on the output side either as it is or wrapped in one
    `<p>`. An inline child is a text node, a comment, or an element whose tag
@@ -202,10 +231,27 @@ out for Pure mode only ("Emphasis and strong emphasis").
 6. **Math.** In a math span the text is compared after rule 1 and, for inline
    math, after trimming; this is steps 2-3 of the "Math" section.
 
+### Text
+
+Given `H0` and its translation
+`M`, both `H0` and `render(M)` are parsed as in "Comparison", and the letters
+and digits (Unicode alphanumeric characters) of their text nodes are
+concatenated in document order. `H0` loses text unless the two strings are
+equal. Attribute values and comment data are not text nodes; whitespace and
+punctuation are left out, since htmd escapes, collapses and moves them by
+design. Only letters and digits are compared, so text nodes merged or split
+across a boundary compare equal. An input whose full-document parse (see
+"Scope") puts an element in `<head>` is exempt: the fragment parser keeps that
+element in the fragment, while `convert` sees it in the head. A difference is a
+finding unless
+`translation_approach.md` drops that text, in which case this section lists
+the case with a citation, as "Scope" does.
+
 ### Scope
 
-An input is out of scope, and rejected before step 2 of `round_trip`, when its
-parsed DOM holds any of the following. Each is a case `translation_approach.md`
+An input is out of scope, and rejected before step 2 of `round_trip`, when
+`H0`, parsed as a full document as `convert` parses it, holds any of the
+following. Each is a case `translation_approach.md`
 calls lossy or unspecified; an entry is deleted once that document specifies
 the case.
 
@@ -241,7 +287,10 @@ mode with the default options. The HTML which follows comes from:
 * `examples/page-to-markdown/html/Hacker News.html`, for the `convert` target
   only, since it exceeds `-max_len` of the others. The Wikipedia page there
   exceeds even the 64 KiB of `convert`, which libFuzzer would truncate, so it is
-  not a seed.
+  not a seed;
+* for the `convert` target, deep nesting which mutation rarely builds:
+  `<blockquote>`, `<ul><li>`, `<em>`, `<table><tr><td>` and `<span>`, each
+  repeated as deep as fits in 64 KiB, with a word at the bottom.
 
 `fuzz/htmd.dict` lists every tag name the generator emits, the attributes
 above, `class="math math-inline"`, `class="math math-display"`,
