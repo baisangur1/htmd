@@ -28,30 +28,30 @@ Layout
 The fuzzer is a [cargo-fuzz](https://rust-fuzz.github.io/book/cargo-fuzz.html) crate in `fuzz/`, which drives libFuzzer and requires a nightly toolchain:
 
 * `fuzz/Cargo.toml` declares its own `[workspace]`, so `cargo build`, `cargo clippy` and `cargo test` in the repository root neither build nor require it, and CI is unchanged.
-* The code the targets share lives in modules under `fuzz/src/`, declared by `fuzz/src/lib.rs`: option decoding, the HTML generator, the scope check, and the normalizer.
+* The code the targets share lives in modules under `fuzz/src/`, declared by `fuzz/src/lib.rs`: option decoding, the HTML generator, the scope check, the comparison with its normalizer, and the text check.
 * `fuzz/fuzz_targets/` holds one file per target.
-* `fuzz/seeds/` holds the seed corpus and `fuzz/htmd.dict` the dictionary.
+* `fuzz/seeds/<target>/` holds the seed corpus of each target and `fuzz/htmd.dict` the dictionary.
 
 Input decoding
 --------------
 
 A fuzz input is a byte string. Its first 13 bytes choose the options, one byte per field, in this order: the twelve fields of `Options` in
-declaration order, then `scripting_enabled` on the builder. An input shorter than 13 bytes is rejected. Byte 0 always decodes to the default, so a prefix of
+declaration order, then `scripting_enabled` on the builder. An input shorter than 13 bytes is rejected. A zero byte always decodes to the default, so in `convert` a prefix of
 zero bytes gives
 `Options::default()` with scripting enabled:
 
 * an enum field takes the variant `(d + b) mod n` in declaration order, where `d` is the index of its default, `b` the byte and `n` the number of variants;
-* `ul_bullet_spacing` and `ol_number_spacing` take the default plus the byte, wrapping, so values outside 1 through 4 exercise the clamping `options.rs` documents;
+* `ul_bullet_spacing` and `ol_number_spacing` take the default plus the byte, wrapping, so values outside 1 through 4 exercise the clamping in `list_marker_spacing` (`element_util.rs`);
 * `preformatted_code` and `scripting_enabled` take the default, flipped when the byte is odd.
 
 In the round-trip targets three fields ignore their byte:
 
 * `translation_mode` is `TranslationMode::Faithful`;
-* `preformatted_code` is `true`. With `false`, inline code has its whitespace trimmed and collapsed by design (`options.rs`), which no round trip survives;
+* `preformatted_code` is `true`. With `false`, inline code has its whitespace trimmed by design (`code.rs`), which no round trip survives;
 * `link_reference_style` is `LinkReferenceStyle::Full`. `Collapsed` and `Shortcut` use the link text as the label, so two links with the same text
   and different destinations read back with the first one's, and `translation_approach.md` marks both styles for removal ("Links").
 
-The remaining bytes are the HTML. Raw targets take them as UTF-8 and reject an input which is not valid UTF-8, since `convert` accepts only a `&str`. Structured targets use them as the source of the generator's choices and build the HTML with the generator below.
+The remaining bytes are the HTML. Raw targets (`convert`, `round_trip`) take them as UTF-8 and reject an input which is not valid UTF-8, since `convert` accepts only a `&str`. The structured target (`round_trip_structured`) uses them as the source of the generator's choices and builds the HTML with the generator below.
 
 Targets
 -------
@@ -61,15 +61,10 @@ Targets
 Converts raw HTML under any options. The target fails if:
 
 1. `convert` panics, overflows the stack, or returns `Err`;
-2. a second conversion of the same input, by a freshly built `HtmlToMarkdown`
-   on a new thread, returns a different string. The `LinkStyle::Referenced`
-   definitions are kept in a thread-local stack (`anchor.rs`), not in the
-   converter, so only a new thread starts from clean state. A leak from an
-   earlier input is reported on the input which sees it; when `tmin` cannot
-   reproduce such a failure alone, it is reproduced by replaying the inputs of
-   that run in order. The new thread gets the stack size of the thread which
-   ran the first conversion, so that a deep input overflows in both or in
-   neither;
+2. a second conversion of the same input, by a freshly built `HtmlToMarkdown`,
+   returns a different string. Both conversions run on new threads with the
+   same stack size, so that thread-local state (`anchor.rs`) cannot pass from
+   one to the other and a deep input overflows in both or in neither;
 3. the input loses text (see "Text").
 
 Run with `-max_len=65536 -timeout=2 -rss_limit_mb=2048`. `README.md` reports
@@ -88,17 +83,16 @@ Checks the Faithful translation of raw HTML. Given input `H0`:
    `ENABLE_TABLES | ENABLE_MATH` — the GFM tables of the "Tables" section and
    the math of the "Math" section — and no other extension.
 4. Fail unless `H1` matches `H0` (see "Comparison").
-5. `H2 = render(convert(H1))`. Fail unless `H2` matches `H1` under the same
+5. `H2 = render(convert(H1))`, with the options and `scripting_enabled` of
+   step 2. Fail unless `H2` matches `H1` under the same
    comparison as step 4 — the tree comparison of "Comparison", not string
    equality — with `H1` as the input side.
 
-Step 5 repeats the trip from the canonical HTML pulldown-cmark writes. It is
-redundant where step 4 is exact, but it still catches a translation which
-drifts on every trip in cases where the comparison is too coarse to see the
+Step 5 repeats the trip from the canonical HTML pulldown-cmark writes. It
+catches a translation which drifts on every trip in cases where the comparison is too coarse to see the
 first drift.
 
-Run with `-max_len=4096`: the normalizer and the tree comparison are linear, but
-short inputs minimize to readable test cases.
+Run with `-max_len=4096`: short inputs minimize to readable test cases.
 
 ### `round_trip_structured`
 
@@ -327,8 +321,10 @@ A crash or hang from the `convert` target is always case 3.
 Running
 -------
 
+From the repository root:
+
 ```
-cargo +nightly fuzz run convert -- -max_len=65536 -timeout=2 -rss_limit_mb=2048
-cargo +nightly fuzz run round_trip -- -max_len=4096 -dict=fuzz/htmd.dict
+cargo +nightly fuzz run convert fuzz/corpus/convert fuzz/seeds/convert -- -max_len=65536 -timeout=2 -rss_limit_mb=2048
+cargo +nightly fuzz run round_trip fuzz/corpus/round_trip fuzz/seeds/round_trip -- -max_len=4096 -dict=fuzz/htmd.dict
 cargo +nightly fuzz run round_trip_structured
 ```
