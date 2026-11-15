@@ -105,13 +105,14 @@ the rules of `translation_approach.md` live; the generator produces it directly.
 
 The generator builds a tree from the input bytes, then serializes it:
 
-* Elements: every tag with a built-in handler (`a`, `b`, `blockquote`, `br`,
+* Elements: the tags with a built-in handler, except the document-level
+  `head`, `body` and `html` (`a`, `b`, `blockquote`, `br`,
   `caption`, `code`, `em`, `h1`-`h6`, `hr`, `i`, `img`, `li`, `ol`, `p`, `pre`,
-  `strong`, `table`, `tbody`, `td`, `th`, `thead`, `tr`, `ul`), the
+  `strong`, `table`, `tbody`, `td`, `th`, `thead`, `tr`, `ul`, `span`), the
   math spans `<span class="math math-inline">` and
   `<span class="math math-display">`, and elements without a dedicated
-  handler (`span`, `div`, `del`,
-  `sub`, `sup`, `kbd`, `colgroup`, `col`, `tfoot`).
+  handler (`div`, `del`, `sub`,
+  `sup`, `kbd`, `colgroup`, `col`, `tfoot`).
 * Attributes: `href`, `src`, `alt`, `title`, `class`, `id`, `start`, `align`,
   each present or absent, empty or not. A non-empty value is drawn from the
   text below, so that a destination or title can hold a space, a line ending,
@@ -120,7 +121,7 @@ The generator builds a tree from the input bytes, then serializes it:
   writes as its info string.
 * Comments.
 * Text drawn mostly from characters which are CommonMark syntax somewhere —
-  `` \ ` * _ [ ] ( ) < > & ; ! | $ # ~ - + = . : ' " % { } @ `` — plus digits,
+  `` \ ` * _ [ ] ( ) < > & ; ! | $ # ~ - + = . : ' " % { } `` — plus digits,
   `a`, `A`, space, tab, LF, CR, form feed, the Unicode whitespace characters
   U+00A0, U+2003 and U+3000, and a Unicode punctuation character which is not
   ASCII (`¡`), since flanking depends on Unicode punctuation and whitespace.
@@ -132,10 +133,11 @@ The generator builds a tree from the input bytes, then serializes it:
   numbered words `w0`, `w1`, ..., so that the text check names the word lost.
 * Sequences which are CommonMark block syntax at the start of a line: `1. A`,
   `1) A`, `* a`, `- a`, `+ a`, `---`, `***`, `___`, `===`, `# a`, `> a`,
-  `` ``` ``, `~~~`, four spaces, `[a]: b` and `| a |`. htmd starts a Markdown
-  line not only at a line ending in a text node, so they are placed at the
-  start of a text node, after a line ending in it, and as the first text after
-  a `<br>` and inside a `<li>`, `<td>`, `<th>` or `<blockquote>`.
+  `` ``` ``, `~~~`, four spaces, `[a]: b` and `| a |`. htmd escapes a text
+  node's first byte whenever it can open a block, without knowing whether the
+  node starts a line, so they are placed at the start of every text node: at
+  the top, after a line ending in it, as the first text after a `<br>`, and
+  inside a `<li>`, `<td>`, `<th>` or `<blockquote>`.
 * At most 8 levels deep and 6 children per element.
 * One node in about twelve replaced by markup which does not nest: a stray end
   tag (`</p>`, `</li>`), an unclosed start tag, `<td>` outside a table, or text
@@ -272,17 +274,23 @@ with no list-specific exclusion.
 Seeds and dictionary
 --------------------
 
-Every seed file starts with the 13-byte option prefix, all zero bytes except a
+The seeds and the dictionary are created together with the generator. Every
+seed file starts with the 13-byte option prefix, all zero bytes except a
 1 for `translation_mode`, so that the `convert` target too starts from Faithful
-mode with the default options. The HTML which follows comes from:
+mode with the default options. These HTML seeds are for the `convert` and
+`round_trip` targets; the structured target reads the bytes as generator
+choices and gets none of them. The HTML comes from:
 
 * the *HTML in* column of every table in `translation_approach.md` except the
-  Lists table (that section is under development), one file per row, written
+  Lists table (that section is under development), one file per table and row
+  (named for the table and the row index, so the identical rows of the ATX
+  and Setex headings tables do not collide), written
   out as `tests/translation_approach_tests.rs` does: `␣` and `⏎`
   replaced by a space and a line feed, `<br><br>...<br>` expanded to one and to
   three `<br>`s, yielding two files for such a row, and a body-cell row placed
   in the one-column table the "Tables" section describes;
-* the cases of `tests/html/turndown_test_index.html`;
+* the cases of `tests/html/turndown_test_index.html` (the `<div class="input">`
+  payload of each case);
 * `examples/page-to-markdown/html/Hacker News.html`, for the `convert` target
   only, since it exceeds `-max_len` of the others. The Wikipedia page there
   exceeds even the 64 KiB of `convert`, which libFuzzer would truncate, so it is
