@@ -69,7 +69,10 @@ Converts raw HTML under any options. The target fails if:
 
 Run with `-max_len=65536 -timeout=2 -rss_limit_mb=2048`. `README.md` reports
 16 ms for a 1.37 MB page, so a 64 KiB input taking two seconds is a superlinear
-path. Arbitrarily deep nesting is in scope: html5ever does
+path. The target is built with `-O -s none --no-trace-compares`, so that the
+timeout measures htmd: AddressSanitizer and comparison tracing slow its string
+handling more than tenfold. htmd has no `unsafe` code, and Rust aborts on a
+stack overflow by itself. Arbitrarily deep nesting is in scope: html5ever does
 not bound tree depth, and a stack overflow in the DOM walker is a finding.
 
 ### `round_trip`
@@ -324,7 +327,7 @@ Running
 From the repository root:
 
 ```
-cargo +nightly fuzz run convert fuzz/corpus/convert fuzz/seeds/convert -- -max_len=65536 -timeout=2 -rss_limit_mb=2048
+cargo +nightly fuzz run -O -s none --no-trace-compares convert fuzz/corpus/convert fuzz/seeds/convert -- -max_len=65536 -timeout=2 -rss_limit_mb=2048
 cargo +nightly fuzz run round_trip fuzz/corpus/round_trip fuzz/seeds/round_trip -- -max_len=4096 -dict=fuzz/htmd.dict
 cargo +nightly fuzz run round_trip_structured
 ```

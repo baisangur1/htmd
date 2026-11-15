@@ -3,7 +3,8 @@ use crate::{
     element_handler::{
         HandlerResult, Handlers,
         element_util::{
-            serialize_element, serialize_element_when_faithful, serialize_if_extra_attrs,
+            serialize_element, serialize_if_extra_attrs,
+            serialize_inline_element_with_walked_children, serialize_when_faithful,
         },
     },
     options::TranslationMode,
@@ -21,21 +22,28 @@ pub(super) fn emphasis_handler(
     serialize_if_extra_attrs!(handlers, element, 0);
     // Emphasis is an inline: its children begin an inline context, though text
     // inside a `<pre>` stays literal.
-    let content = handlers.walk_children_content(
-        element.node,
-        Context {
-            kind: ContextKind::Inline,
-            ..element.context
-        },
-    );
+    let children_context = Context {
+        kind: ContextKind::Inline,
+        ..element.context
+    };
+    let walked_children = handlers.walk_children_content(element.node, children_context);
+    // An emphasis is never a block element, so `serialize_element` writes it
+    // inline from children walked in `Context::INLINE`.
+    let serialize = || {
+        if children_context == Context::INLINE {
+            serialize_inline_element_with_walked_children(element, &walked_children)
+        } else {
+            serialize_element(handlers, element)
+        }
+    };
     // Note: this is whitespace, NOT document whitespace, per the
     // [Commonmark spec](https://spec.commonmark.org/0.31.2/#emphasis-and-strong-emphasis).
-    let (content, leading_whitespace) = content.strip_leading_whitespace();
+    let (content, leading_whitespace) = walked_children.strip_leading_whitespace();
     let (content, trailing_whitespace) = content.strip_trailing_whitespace();
     // Content which is whitespace, or nothing at all, leaves nothing to
     // emphasize, and CommonMark cannot spell an emphasis empty. See the
     // "Emphasis and strong emphasis" section of `translation_approach.md`.
-    serialize_element_when_faithful!(handlers, element, content.is_empty());
+    serialize_when_faithful!(handlers, content.is_empty(), serialize());
     // The element goes, but the whitespace it held still separates the text
     // around it. The trailing run is empty, the leading one having taken all of
     // the content.
@@ -48,7 +56,7 @@ pub(super) fn emphasis_handler(
         && (content.starts_with(is_unicode_punctuation)
             || content.ends_with(is_unicode_punctuation))
     {
-        return Some(HandlerResult::html(serialize_element(handlers, element)));
+        return Some(HandlerResult::html(serialize()));
     }
 
     let content = concat_strings!(

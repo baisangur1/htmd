@@ -10,7 +10,9 @@ use htmd::{
     options::{LinkStyle, Options, TranslationMode},
 };
 mod common;
-use common::{convert_faithful, convert_pure, render_markdown, round_trip};
+use common::{
+    convert_faithful, convert_faithful_options, convert_pure, render_markdown, round_trip,
+};
 
 #[test]
 fn links_with_spaces() {
@@ -188,6 +190,38 @@ fn faithful_mode_keeps_adjacent_emphasis_apart() {
         "<b>a</b><strong>b</strong>",
         convert_faithful("<p><b>a</b><strong>b</strong></p>").unwrap()
     );
+}
+
+/// Found by the `convert` fuzz target: an emphasis written as HTML walked its
+/// children twice, so nesting took exponential time.
+#[test]
+fn nested_emphasis_written_as_html_takes_linear_time() {
+    let tables_and_math = CommonMarkOptions::ENABLE_TABLES | CommonMarkOptions::ENABLE_MATH;
+    for (open, close) in [("<em>", "</em>"), ("<em>!", "</em>"), ("<b> ", "</b>")] {
+        let inner = format!("{}{}", open.repeat(40), close.repeat(40));
+        let html = format!("<p>{inner}</p>");
+        let markdown = convert_faithful_options(&html, Options::default()).unwrap();
+        assert_eq!(inner.trim_end(), markdown);
+        assert_eq!(
+            format!("{html}\n"),
+            render_markdown(&markdown, tables_and_math)
+        );
+    }
+}
+
+/// Found by the `convert` fuzz target: every level of nesting recurses through
+/// the DOM walker, which overflowed the stack.
+#[test]
+fn deep_nesting_does_not_overflow_the_stack() {
+    let tables_and_math = CommonMarkOptions::ENABLE_TABLES | CommonMarkOptions::ENABLE_MATH;
+    let depth = 4000;
+    let html = format!(
+        "{}w0{}",
+        "<table><tr><td>".repeat(depth),
+        "</td></tr></table>".repeat(depth)
+    );
+    let markdown = convert_faithful_options(&html, Options::default()).unwrap();
+    assert!(render_markdown(&markdown, tables_and_math).contains("<td>w0</td>"));
 }
 
 /// Writing the two code spans one after the other is no answer either: the

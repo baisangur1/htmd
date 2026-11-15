@@ -19,6 +19,9 @@ use super::{
     },
 };
 
+const RED_ZONE: usize = 256 * 1024;
+const STACK_SEGMENT: usize = 4 * 1024 * 1024;
+
 pub(crate) fn walk_node(
     node: &Rc<Node>,
     output: &mut String,
@@ -40,14 +43,20 @@ pub(crate) fn walk_node(
             trim_leading_spaces,
             context,
         ),
-        NodeData::Element { name, attrs, .. } => walk_element(
-            node,
-            name.local.as_ref(),
-            &attrs.borrow(),
-            output,
-            handlers,
-            context,
-        ),
+        // html5ever does not bound the depth of a tree, and each level of it
+        // recurses through here.
+        NodeData::Element { name, attrs, .. } => {
+            stacker::maybe_grow(RED_ZONE, STACK_SEGMENT, || {
+                walk_element(
+                    node,
+                    name.local.as_ref(),
+                    &attrs.borrow(),
+                    output,
+                    handlers,
+                    context,
+                )
+            })
+        }
         NodeData::Comment { contents } => {
             if handlers.options.translation_mode == TranslationMode::Faithful {
                 walk_comment(contents, output, context);

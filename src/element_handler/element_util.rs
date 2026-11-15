@@ -96,7 +96,10 @@ fn try_serialize_element(handlers: &dyn Handlers, element: &Element) -> io::Resu
     if element.context.is_block() && is_block_element(element.tag) {
         serialize_block_element(element)
     } else {
-        serialize_inline_element(handlers, element)
+        serialize_inline_element(
+            element,
+            &handlers.walk_children_content(element.node, Context::INLINE),
+        )
     }
 }
 
@@ -107,7 +110,17 @@ fn serialize_opts() -> SerializeOpts {
     }
 }
 
-fn serialize_inline_element(handlers: &dyn Handlers, element: &Element) -> io::Result<String> {
+/// [`serialize_element`] of an inline element for a handler which already
+/// walked its children in [`Context::INLINE`]; walking them again doubles the
+/// work at every level of nesting.
+pub(crate) fn serialize_inline_element_with_walked_children(
+    element: &Element,
+    content: &str,
+) -> String {
+    serialize_inline_element(element, content).unwrap_or_else(|error| error.to_string())
+}
+
+fn serialize_inline_element(element: &Element, content: &str) -> io::Result<String> {
     let NodeData::Element { name, attrs, .. } = &element.node.data else {
         return Err(io::Error::other("expected an element node"));
     };
@@ -124,11 +137,7 @@ fn serialize_inline_element(handlers: &dyn Handlers, element: &Element) -> io::R
     // Everything written so far is the open tag, whose attribute values hold
     // the only whitespace of this element the walk below does not reach.
     let open_tag_len = serializer.writer.len();
-    serializer.writer.write_all(
-        handlers
-            .walk_children_content(element.node, Context::INLINE)
-            .as_bytes(),
-    )?;
+    serializer.writer.write_all(content.as_bytes())?;
     serializer.end_elem(name.clone())?;
     let mut html = String::from_utf8(bytes).map_err(io::Error::other)?;
     let open_tag = &html[..open_tag_len];
