@@ -107,10 +107,11 @@ The generator builds a tree from the input bytes, then serializes it:
 
 * Elements: every tag with a built-in handler (`a`, `b`, `blockquote`, `br`,
   `caption`, `code`, `em`, `h1`-`h6`, `hr`, `i`, `img`, `li`, `ol`, `p`, `pre`,
-  `strong`, `table`, `tbody`, `td`, `tfoot`, `th`, `thead`, `tr`, `ul`), the
+  `strong`, `table`, `tbody`, `td`, `th`, `thead`, `tr`, `ul`), the
   math spans `<span class="math math-inline">` and
-  `<span class="math math-display">`, and elements without a handler (`span`,
-  `div`, `del`, `sub`, `sup`, `kbd`, `colgroup`, `col`).
+  `<span class="math math-display">`, and elements without a dedicated
+  handler (`span`, `div`, `del`,
+  `sub`, `sup`, `kbd`, `colgroup`, `col`, `tfoot`).
 * Attributes: `href`, `src`, `alt`, `title`, `class`, `id`, `start`, `align`,
   each present or absent, empty or not. A non-empty value is drawn from the
   text below, so that a destination or title can hold a space, a line ending,
@@ -127,7 +128,7 @@ The generator builds a tree from the input bytes, then serializes it:
   U+FEFF) and characters of two, three and four bytes in UTF-8 (`é`, `中`,
   `😀`), since a byte offset which splits one panics. Among them it inserts the
   words `lt`, `amp`, `copy`, `div`, `pre` and `CDATA`, so the text can spell
-  character references and the starts of HTML blocks of types 1-6, and the
+  character references and the starts of HTML blocks of types 1, 5 and 6, and the
   numbered words `w0`, `w1`, ..., so that the text check names the word lost.
 * Sequences which are CommonMark block syntax at the start of a line: `1. A`,
   `1) A`, `* a`, `- a`, `+ a`, `---`, `***`, `___`, `===`, `# a`, `> a`,
@@ -275,11 +276,12 @@ Every seed file starts with the 13-byte option prefix, all zero bytes except a
 1 for `translation_mode`, so that the `convert` target too starts from Faithful
 mode with the default options. The HTML which follows comes from:
 
-* the *HTML in* column of every table in `translation_approach.md`, one file per
-  row, written out as `tests/translation_approach_tests.rs` does: `␣` and `⏎`
+* the *HTML in* column of every table in `translation_approach.md` except the
+  Lists table (that section is under development), one file per row, written
+  out as `tests/translation_approach_tests.rs` does: `␣` and `⏎`
   replaced by a space and a line feed, `<br><br>...<br>` expanded to one and to
-  three `<br>`s, and a body-cell row placed in the one-column table the
-  "Tables" section describes;
+  three `<br>`s, yielding two files for such a row, and a body-cell row placed
+  in the one-column table the "Tables" section describes;
 * the cases of `tests/html/turndown_test_index.html`;
 * `examples/page-to-markdown/html/Hacker News.html`, for the `convert` target
   only, since it exceeds `-max_len` of the others. The Wikipedia page there
