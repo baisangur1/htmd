@@ -28,7 +28,7 @@ Layout
 The fuzzer is a [cargo-fuzz](https://rust-fuzz.github.io/book/cargo-fuzz.html) crate in `fuzz/`, which drives libFuzzer and requires a nightly toolchain:
 
 * `fuzz/Cargo.toml` declares its own `[workspace]`, so `cargo build`, `cargo clippy` and `cargo test` in the repository root neither build nor require it, and CI is unchanged.
-* `fuzz/src/lib.rs` holds what the targets share: option decoding, the HTML generator, the scope check, and the normalizer.
+* The code the targets share lives in modules under `fuzz/src/`, declared by `fuzz/src/lib.rs`: option decoding, the HTML generator, the scope check, and the normalizer.
 * `fuzz/fuzz_targets/` holds one file per target.
 * `fuzz/seeds/` holds the seed corpus and `fuzz/htmd.dict` the dictionary.
 

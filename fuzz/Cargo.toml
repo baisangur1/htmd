@@ -1,0 +1,39 @@
+[package]
+name = "htmd-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+htmd = { path = ".." }
+html5ever = "0.39"
+markup5ever_rcdom = "0.39"
+pulldown-cmark = "0.13.4"
+
+[workspace]
+members = ["."]
+
+[[bin]]
+name = "convert"
+path = "fuzz_targets/convert.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "round_trip"
+path = "fuzz_targets/round_trip.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "round_trip_structured"
+path = "fuzz_targets/round_trip_structured.rs"
+test = false
+doc = false
+bench = false
