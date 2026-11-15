@@ -1,118 +1,46 @@
 Project 2 submission
 ====================
 
-Team members are Baisangur Yunussov, Mariya Belyavskaya and Arsen Alimzhan. The
-specification consists of the file [fuzzer-spec.md](fuzzer-spec.md).
+Team name: htmd fuzzer 3
+
+The specification consists of the file [fuzzer-spec.md](fuzzer-spec.md).
 
 Draft submission
 ----------------
 
-### Contributions
+### Baisangur Yunussov
 
-* Baisangur Yunussov: Wrote the initial fuzzing specification (round 1): goals
-  and non-goals, layout, input decoding, the `convert`, `round_trip` and
-  `round_trip_structured` targets, comparison, normalizer, scope, seeds,
-  triage and running. Ran the round 2 review with Claude Opus 5.5 and applied
-  all 18 findings. Merged the team members' reviews into one document and fixed
-  the round 5 inconsistencies.
-* Mariya Belyavskaya: Ran the round 3, 4 and 5 reviews with GPT-6 Luna and
-  GPT-5.6 Luna. Marked the strategy as proposed, added the implementation
-  status, and separated the verified root dependency versions from the
-  unverified fuzz-crate claims. Verified the build, including a local
-  cargo-fuzz crate.
-* Arsen Alimzhan: Ran the round 6 review of the running and corpus portions
-  with GPT-6 (run in Codex): seed initialization and timeout interpretation (proposed,
-  not yet applied).
+GitHub userid: b_yunussov (also baisangur1 and Yemeth)
 
-### Compiler test
+#### Contributions
 
-The following statements summarize LLM output on each team member's computer,
-based on the prompt "Verify that you can compile and run the project in the
-current git repo."
+Wrote the initial fuzzing specification, ran the round 1 review with Claude
+Opus 5.5 and applied all 18 findings, then merged the team members' reviews
+into one document and fixed the remaining inconsistencies.
 
-#### Baisangur Yunussov
+#### Build and run test
+
+The following summarizes LLM output from the prompt "Verify that you can build
+and run the project in the current git repo."
 
 **Model:** not recorded.
 
 **Response:** `cargo build`, `cargo clippy -- --deny warnings` and `cargo test`
-passed on Baisangur's computer. The full response was not recorded.
+passed. The full response was not recorded.
 
-#### Mariya Belyavskaya
+#### Specification review rounds
 
-**Model:** not recorded.
+| Round | Findings | Main changes made |
+| ----- | -------- | ----------------- |
+| 1 | 18 | Seeds-friendly option prefix; lists out of the generator; emphasis whitespace, code-block LF and table header normalized; one-sided matches for implied `<p>` and URLs; scope narrowed for iframe/noscript/textarea/script, nested blocks, template and CR added; pinned deps |
 
-**Response:**
+#### Last specification review
 
-I verified that the current project compiles and runs successfully. `cargo
-build`, `cargo clippy -- --deny warnings`, and `cargo test` all exited with
-status 0. The test suite reported 36 unit tests passed, 85 tests passed in the
-first integration group, all remaining integration and doctests passed, and
-one test was ignored.
-
-The present fuzz crate also compiled successfully with `cargo build
---manifest-path fuzz/Cargo.toml`, and `cargo +nightly fuzz run fuzz_target_1
--- -runs=1` completed successfully. This exercised only the existing empty
-`fuzz_target_1`; the proposed `convert`, `round_trip`, and
-`round_trip_structured` targets are not present and were not tested.
-
-**Commands executed and results:**
-
-```text
-cargo build
-exit 0; Finished `dev` profile
-
-cargo clippy -- --deny warnings
-exit 0; Finished `dev` profile; no denied warnings
-
-cargo test
-exit 0; all test groups passed; 36 unit tests passed, 85 tests passed in the
-first integration group, remaining integration and doctests passed, 1 ignored
-
-cargo build --manifest-path fuzz/Cargo.toml
-exit 0; Finished `dev` profile
-
-cargo +nightly fuzz run fuzz_target_1 -- -runs=1
-exit 0; empty target completed one bounded fuzz run
-
-cargo fuzz --version
-exit 0; cargo-fuzz 0.13.2
-
-rustup toolchain list
-exit 0; stable and nightly toolchains available
-```
-
-The root project and the only present fuzz target therefore compiled and ran.
-The future fuzz targets and their generator, normalizer, corpus, dictionary, and
-comparison oracles could not be verified because they are not present in the
-current checkout.
-
-#### Arsen Alimzhan
-
-**Model:** not recorded.
-
-**Response:** The team branch `htmd-fuzzer-3` was downloaded as a GitHub ZIP archive. An attempt to clone it with Git failed because github.com could not be resolved in the command environment, so the downloaded source is not a Git clone. Running `cargo build` in the extracted directory returned `zsh:1: command not found: cargo`. Consequently, compilation, tests and execution were not verified on this computer. The fuzz targets also do not exist in the downloaded source. This result should not be represented as a successful build. The downloaded snapshot was from before the latest branch update.
-
-### Spec review rounds
-
-| Round | Author | Model | Findings | Main changes made |
-| ----- | ------ | ----- | -------- | ----------------- |
-| 1 | Baisangur Yunussov | — | — | Initial specification |
-| 2 | Baisangur Yunussov | Claude Opus 5.5 | 18 | Seeds-friendly option prefix; lists out of the generator; emphasis whitespace, code-block LF and table header normalized; one-sided matches for implied `<p>` and URLs; scope narrowed for iframe/noscript/textarea/script, nested blocks, template and CR added; pinned deps |
-| 3 | Mariya Belyavskaya | GPT-6 Luna | 2 | Marked the strategy as proposed and separated verified root dependency versions from unverified fuzz-crate claims |
-| 4 | Mariya Belyavskaya | GPT-6 Luna | 0 | No actionable technical defects remained after checking the revised strategy against the available source and translation specification |
-| 5 | Mariya Belyavskaya | GPT-5.6 Luna | 2 | Implementation status and dependency paragraph described a minimal fuzz crate; reverted after review because that crate is not committed |
-| 6 | Arsen Alimzhan | GPT-6 (run in Codex) | 2 | Seed initialization and timeout interpretation; proposed, not yet applied |
-
-### Round 2 review (Baisangur Yunussov)
-
-- **Model:** Claude Opus 5.5
-- **Reasoning effort:** medium
-
-**Prompt:**
+Prompting Claude Opus 5.5, medium effort, with:
 
 > Review the specification in fuzzing.md. Check it against translation_approach.md, the source in src/, and the tests in tests/. Report only findings about fuzzing.md: contradictions, incorrect claims about htmd, html5ever or pulldown-cmark, oracle rules that would report false positives or miss real bugs, and missing cases. Number each finding, give its location in fuzzing.md, and keep each finding to a few sentences. Do not edit any files.
 
-**Output:**
+produced the following output:
 
 I found 18 problems in `fuzzing.md`. I didn't run any code or edit any files.
 The pulldown-cmark and html5ever behaviour I cite comes from my knowledge of
@@ -260,102 +188,259 @@ Findings are ordered by where they appear in `fuzzing.md`.
     inputs. libFuzzer runs inputs in one process, so a leak could show up on a
     later, unrelated input that `tmin` can't reproduce alone.
 
-### Rounds 3 and 4 review (Mariya Belyavskaya)
+### Mariya Belyavskaya
 
-- **Model:** GPT-6 Luna
+GitHub userid: m4yb3konig
 
-The prompt and output below are from `fuzzing-review-final.md` at commit
-`7498d57`, which round 5 merged into this file. Reasoning effort: medium. The
-record states that this was the primary assistant's review and that no
-independent second LLM was invoked.
+#### Contributions
 
-**Prompt:**
+Ran three review rounds with GPT-6 Luna and GPT-5.6 Luna, which marked the
+strategy as proposed and separated the verified root dependency versions from
+the unverified fuzz-crate claims, and verified the build including a local
+cargo-fuzz crate.
 
-> Review only the Fuzzing strategy section in fuzzing.md. Identify concrete technical errors, contradictions, missing cases, or reproducibility problems by checking the claims against the actual repository implementation and referenced translation specification. Do not suggest stylistic rewrites or speculative improvements. Report only actionable findings. For each finding, provide its location, explanation, and a minimal suggested correction. If no meaningful issue remains, say so.
+#### Build and run test
 
-**Iteration 3 findings and iteration 4 result:**
+The following summarizes LLM output from the prompt "Verify that you can build
+and run the project in the current git repo."
 
-Round 3 — 2 findings:
+**Model:** not recorded.
 
-1. **Fuzzing strategy opening and Layout:** the present-tense claims that a fuzzer and its files exist contradicted the repository, which has no `fuzz/` directory. Accepted; labeled the document as a proposed strategy and marked the implementation status.
-2. **Dependency paragraph:** pins and the separate fuzz lockfile were stated as facts despite the missing manifest and lockfile. Accepted; recast the four versions as root-lockfile resolutions and marked the fuzz declarations unverified.
+**Response:**
 
-No stylistic preferences were treated as defects. The decoder and target descriptions are also unverified, but were covered by the single implementation-status finding rather than counted as additional defects.
+I verified that the current project compiles and runs successfully. `cargo
+build`, `cargo clippy -- --deny warnings`, and `cargo test` all exited with
+status 0. The test suite reported 36 unit tests passed, 85 tests passed in the
+first integration group, all remaining integration and doctests passed, and
+one test was ignored.
 
-Round 4 — 0 actionable findings. Rechecked the revised section against `Options`, the root lockfile, the translation specification and tests. The text now distinguishes required future behavior from verified implementation. No correction was needed. Requests to add further generic fuzzing guidance were rejected as speculative and outside the concrete defects requested.
+The present fuzz crate also compiled successfully with `cargo build
+--manifest-path fuzz/Cargo.toml`, and `cargo +nightly fuzz run fuzz_target_1
+-- -runs=1` completed successfully. This exercised only the existing empty
+`fuzz_target_1`; the proposed `convert`, `round_trip`, and
+`round_trip_structured` targets are not present and were not tested.
 
-**Iteration 4 output:**
+**Commands executed and results:**
 
-> No actionable technical defect remains in the revised Fuzzing strategy section as a proposed design. The current checkout contains no `fuzz/` directory, so the described decoder, targets, generator, normalizer, seeds, dictionary, fuzz manifest, and fuzz lockfile cannot be verified against implementation. The specification now states that limitation explicitly and identifies the dependency versions as values resolved by the current root lockfile rather than claims about a missing fuzz manifest. The root `Options` declaration confirms twelve option fields, with `scripting_enabled` configured separately on the builder; the root lockfile confirms the stated versions of html5ever, markup5ever_rcdom, pulldown-cmark, and pulldown-cmark-escape. `translation_approach.md` and the existing tests support the cited design constraints around Faithful mode and the test helper's default renderer. Fuzz target compilation remains unverified because the fuzz crate and cargo-fuzz are absent.
+```text
+cargo build
+exit 0; Finished `dev` profile
 
-### Round 5 review (Mariya Belyavskaya)
+cargo clippy -- --deny warnings
+exit 0; Finished `dev` profile; no denied warnings
 
-- **Model:** GPT-5.6 Luna
-- **Reasoning effort:** Not exposed by runtime
-- **Review prompt:**
+cargo test
+exit 0; all test groups passed; 36 unit tests passed, 85 tests passed in the
+first integration group, remaining integration and doctests passed, 1 ignored
 
-  > Review only the Fuzzing strategy section in fuzzing.md. Check it against the actual repository implementation, source code, tests, Cargo configuration, and translation_approach.md.
-  >
-  > Identify only concrete, actionable technical errors, contradictions, missing cases that affect correctness, or reproducibility problems. Do not suggest stylistic rewrites, generic fuzzing recommendations, or speculative improvements.
-  >
-  > Pay particular attention to whether the document distinguishes implemented functionality from proposed future functionality, whether dependency versions are accurately described, whether the documented targets and input decoding agree with the source code, and whether the comparison and normalization rules match the translation specification and tests.
-  >
-  > For each finding, provide its exact location, explain the technical problem, and suggest the smallest necessary correction.
-  >
-  > Do not invent repository files, implementation details, test results, or build results. If a detail cannot be verified from the current checkout, explicitly say so.
-  >
-  > If no actionable technical defects remain, state that clearly and explain briefly what was verified and what remains unverified.
+cargo build --manifest-path fuzz/Cargo.toml
+exit 0; Finished `dev` profile
 
-- **Output:**
+cargo +nightly fuzz run fuzz_target_1 -- -runs=1
+exit 0; empty target completed one bounded fuzz run
 
-  The revised Fuzzing strategy section has no actionable technical defects remaining. I verified the implementation-status statement against the present checkout: `fuzz/` contains `Cargo.toml`, `Cargo.lock`, and the empty `fuzz_target_1` target, but it does not contain the proposed shared implementation, generator, normalizer, corpus, dictionary, or additional targets. I also verified the current `fuzz/Cargo.toml`: it declares only the path dependency on `htmd` and `libfuzzer-sys`, so the proposed generator and oracle dependencies remain future requirements rather than current manifest declarations. The root source, tests, Cargo configuration, root lockfile, and `translation_approach.md` support the remaining documented claims that were checked. The present fuzz target compiles and runs one iteration, but the proposed fuzzing strategy is not implemented and its future targets and oracles remain unverified.
+cargo fuzz --version
+exit 0; cargo-fuzz 0.13.2
 
-- **Findings accepted and applied:**
+rustup toolchain list
+exit 0; stable and nightly toolchains available
+```
 
-  1. The implementation-status paragraph incorrectly said that `fuzz/` was absent. It now identifies the present minimal fuzz crate and distinguishes it from the proposed implementation.
-  2. The dependency paragraph incorrectly said that the fuzz manifest and lockfile were absent. It now records the actual manifest declarations and distinguishes the root lockfile versions from the minimal fuzz lockfile.
+The root project and the only present fuzz target therefore compiled and ran.
+The future fuzz targets and their generator, normalizer, corpus, dictionary, and
+comparison oracles could not be verified because they are not present in the
+current checkout.
 
-  Both changes were later reverted: the `fuzz/` crate the review saw was in the
-  reviewer's local checkout and is not committed to this branch.
+#### Specification review rounds
 
-- **Findings rejected:** None.
+| Round | Findings | Main changes made |
+| ----- | -------- | ----------------- |
+| 1 | 2 | Marked the strategy as proposed and separated verified root dependency versions from unverified fuzz-crate claims |
+| 2 | 0 | No actionable technical defects remained after checking the revised strategy against the available source and translation specification |
+| 3 | 2 | Implementation status and dependency paragraph described a minimal fuzz crate; reverted after review because that crate is not committed |
 
-### Last LLM review
+#### Last specification review
 
-Round 6, by Arsen Alimzhan.
+Prompting GPT-5.6 Luna, reasoning effort not exposed by the runtime, with:
 
-- **Model:** GPT-6 (run in Codex)
+> Review only the Fuzzing strategy section in fuzzing.md. Check it against the actual repository implementation, source code, tests, Cargo configuration, and translation_approach.md.
+>
+> Identify only concrete, actionable technical errors, contradictions, missing cases that affect correctness, or reproducibility problems. Do not suggest stylistic rewrites, generic fuzzing recommendations, or speculative improvements.
+>
+> Pay particular attention to whether the document distinguishes implemented functionality from proposed future functionality, whether dependency versions are accurately described, whether the documented targets and input decoding agree with the source code, and whether the comparison and normalization rules match the translation specification and tests.
+>
+> For each finding, provide its exact location, explain the technical problem, and suggest the smallest necessary correction.
+>
+> Do not invent repository files, implementation details, test results, or build results. If a detail cannot be verified from the current checkout, explicitly say so.
+>
+> If no actionable technical defects remain, state that clearly and explain briefly what was verified and what remains unverified.
 
-**Prompt:**
+produced the following output:
+
+The revised Fuzzing strategy section has no actionable technical defects
+remaining. I verified the implementation-status statement against the present
+checkout: `fuzz/` contains `Cargo.toml`, `Cargo.lock`, and the empty
+`fuzz_target_1` target, but it does not contain the proposed shared
+implementation, generator, normalizer, corpus, dictionary, or additional
+targets. I also verified the current `fuzz/Cargo.toml`: it declares only the
+path dependency on `htmd` and `libfuzzer-sys`, so the proposed generator and
+oracle dependencies remain future requirements rather than current manifest
+declarations. The root source, tests, Cargo configuration, root lockfile, and
+`translation_approach.md` support the remaining documented claims that were
+checked. The present fuzz target compiles and runs one iteration, but the
+proposed fuzzing strategy is not implemented and its future targets and oracles
+remain unverified.
+
+Findings accepted and applied:
+
+1. The implementation-status paragraph incorrectly said that `fuzz/` was
+   absent. It now identifies the present minimal fuzz crate and distinguishes it
+   from the proposed implementation.
+2. The dependency paragraph incorrectly said that the fuzz manifest and lockfile
+   were absent. It now records the actual manifest declarations and
+   distinguishes the root lockfile versions from the minimal fuzz lockfile.
+
+Both changes were later reverted: the `fuzz/` crate the review saw was in the
+reviewer's local checkout and is not committed to this branch.
+
+### Arsen Alimzhan
+
+GitHub userid: alimzhan1709-droid
+
+#### Contributions
+
+Reviewed the running and corpus portions of the specification with GPT-6 (run
+in Codex), finding gaps in seed initialization and timeout interpretation.
+
+#### Build and run test
+
+The following summarizes LLM output from the prompt "Verify that you can build
+and run the project in the current git repo."
+
+**Model:** GPT-6 Luna
+
+**Response:** The team branch `htmd-fuzzer-3` was downloaded as a GitHub ZIP
+archive. An attempt to clone it with Git failed because github.com could not be
+resolved in the command environment, so the downloaded source is not a Git
+clone. Running `cargo build` in the extracted directory returned
+`zsh:1: command not found: cargo`. Consequently, compilation, tests and
+execution were not verified on this computer. The fuzz targets also do not exist
+in the downloaded source. This result should not be represented as a successful
+build. The downloaded snapshot was from before the latest branch update.
+
+#### Specification review rounds
+
+| Round | Findings | Main changes made |
+| ----- | -------- | ----------------- |
+| 1 | 2 | Seed initialization from `fuzz/seeds/` into the working corpus; a single timeout no longer taken as proof of superlinear complexity |
+
+#### Last specification review
+
+Prompting GPT-6 Luna (run in Codex), medium effort, with:
 
 > Review the running and corpus portions of fuzzing.md for actionable ambiguities or unsupported claims; do not assume the proposed fuzzer exists.
 
-**Output:**
+produced the following output:
 
-1. **Seed use:** The strategy stores seeds in `fuzz/seeds/`, whereas working corpora are in `fuzz/corpus/`. The listed commands do not explain how the seeds reach the target corpus. Specify a reproducible initialization step for each target, preserving the 13-byte prefix and respecting the target's input limits.
-2. **Timeout interpretation:** A 64 KiB input taking two seconds does not by itself prove superlinear complexity. The benchmark uses a different input, environment and workload. Treat the timeout as a finding to reproduce and investigate, and compare multiple sizes before describing complexity.
-
-These are proposed changes; they have not been applied to the specification. The review concerns only the running and corpus portions of the existing specification.
-
----
+1. **Seed use:** The strategy stores seeds in `fuzz/seeds/`, whereas working
+   corpora are in `fuzz/corpus/`. The listed commands do not explain how the
+   seeds reach the target corpus. Specify a reproducible initialization step for
+   each target, preserving the 13-byte prefix and respecting the target's input
+   limits.
+2. **Timeout interpretation:** A 64 KiB input taking two seconds does not by
+   itself prove superlinear complexity. The benchmark uses a different input,
+   environment and workload. Treat the timeout as a finding to reproduce and
+   investigate, and compare multiple sizes before describing complexity.
 
 Final submission
 ----------------
 
-### Contributions
+### Baisangur Yunussov
 
-* Baisangur Yunussov:
-* Mariya Belyavskaya:
-* Arsen Alimzhan:
+GitHub userid: b_yunussov (also baisangur1 and Yemeth)
 
-### Spec review rounds
+#### Contributions
 
-(Table showing spec review rounds)
+(Contributions)
 
-### Implementation review rounds
+#### Specification review rounds
 
-(Table showing implementation review rounds)
+| Round | Findings | Main changes made |
+| ----- | -------- | ----------------- |
 
-### Last LLM spec review
+#### Last specification review
 
-### Last LLM implementation review
+(LLM and prompt used)
+
+(LLM output, possibly with strikethrough)
+
+#### Implementation review rounds
+
+| Round | Findings | Main changes made |
+| ----- | -------- | ----------------- |
+
+#### Last implementation review
+
+(LLM and prompt used)
+
+(LLM output, possibly with strikethrough)
+
+### Mariya Belyavskaya
+
+GitHub userid: m4yb3konig
+
+#### Contributions
+
+(Contributions)
+
+#### Specification review rounds
+
+| Round | Findings | Main changes made |
+| ----- | -------- | ----------------- |
+
+#### Last specification review
+
+(LLM and prompt used)
+
+(LLM output, possibly with strikethrough)
+
+#### Implementation review rounds
+
+| Round | Findings | Main changes made |
+| ----- | -------- | ----------------- |
+
+#### Last implementation review
+
+(LLM and prompt used)
+
+(LLM output, possibly with strikethrough)
+
+### Arsen Alimzhan
+
+GitHub userid: alimzhan1709-droid
+
+#### Contributions
+
+(Contributions)
+
+#### Specification review rounds
+
+| Round | Findings | Main changes made |
+| ----- | -------- | ----------------- |
+
+#### Last specification review
+
+(LLM and prompt used)
+
+(LLM output, possibly with strikethrough)
+
+#### Implementation review rounds
+
+| Round | Findings | Main changes made |
+| ----- | -------- | ----------------- |
+
+#### Last implementation review
+
+(LLM and prompt used)
+
+(LLM output, possibly with strikethrough)
