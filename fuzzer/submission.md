@@ -361,29 +361,112 @@ GitHub userid: b_yunussov (also baisangur1 and Yemeth)
 
 #### Contributions
 
-(Contributions)
+Created the cargo-fuzz crate with the shared interface, implemented option decoding, `render` and the `convert` and `round_trip` targets, revised the "Layout", "Input decoding", "Targets > convert", "Targets > round_trip" and "Running" sections, and fixed the exponential emphasis serialization and the stack overflows on deep nesting which the `convert` target found.
 
 #### Specification review rounds
 
 | Round | Findings | Main changes made |
 | ----- | -------- | ----------------- |
+| 1 | 25 | Seeds loaded per target from the repository root, the false anchor-leak reasoning replaced by both conversions on equal-stack threads, step 5 options pinned, and wrong citations and claims about the option prefix fixed. |
+| 2 | 1 | The `-timeout=2` reasoning ignored instrumentation, so `convert` is now built with `-O -s none --no-trace-compares`. |
 
 #### Last specification review
 
-(LLM and prompt used)
+Prompting Claude Opus 5.5, medium effort, with `Review only the sections "Layout", "Input decoding", "Targets > convert", "Targets > round_trip" and "Running" of fuzzer/fuzzer-spec.md. Check them for contradictions, ambiguities, and claims which are false for the htmd source code. Write numbered findings to review.md.` produced the following output; strikethrough indicates LLM output that I deemed incorrect or irrelevant.
 
-(LLM output, possibly with strikethrough)
+**Review of fuzzer/fuzzer-spec.md: Layout, Input decoding, Targets > convert, Targets > round_trip, Running**
+
+Checked against `src/`, `fuzz/`, cargo-fuzz 0.13.2, libfuzzer-sys 0.4.13, html5ever 0.39 and markup5ever_rcdom 0.39. Behavioural claims were checked by running htmd and pulldown-cmark 0.13.4 (`ENABLE_TABLES | ENABLE_MATH`) on the inputs quoted below.
+
+##### Layout
+
+1. **The module list does not match `fuzz/src/lib.rs`, and Triage contradicts it.** Layout says `fuzz/src/lib.rs` declares four modules: "option decoding, the HTML generator, the scope check, and the normalizer". The file actually declares `compare`, `generator`, `options`, `scope` and `text`, and defines `render` itself. No module is called normalizer, the comparison and text check are not mentioned, and the spec never says which module holds `N` and the matching rules. Triage case 1 then says to "Fix `fuzz/src/lib.rs`" for a normalizer bug, which conflicts with Layout putting the normalizer in a module under `fuzz/src/`.
+
+2. **"The seed corpus" is described as one directory, but the seeds differ per target.** Layout gives a single `fuzz/seeds/`. Seeds and dictionary, though, makes some seeds convert-only (Hacker News, the deep-nesting files). Seeds whose tail is HTML also mean nothing to `round_trip_structured`, which reads those bytes as generator choices. The layout should say how seeds are split per target, for example `fuzz/seeds/<target>/`. See also 23.
+
+3. ~~**The `[workspace]` statement is true but gives the wrong reason.** The root `Cargo.toml` has no `[workspace]`, so root `cargo build/clippy/test` (the only CI steps in `.github/workflows`) would never build `fuzz/` anyway. The `[workspace]` in `fuzz/Cargo.toml` stops cargo from looking for a parent workspace when building the fuzz crate; it is not what keeps CI unchanged. This is minor, but the causal "so" is wrong.~~
+
+##### Input decoding
+
+4. **"Byte 0" is ambiguous.** "Byte 0 always decodes to the default" can be read as "the byte at index 0" (the `heading_style` byte) as well as "a byte of value 0". The second reading is meant, so it should say "a zero byte" or "the value 0".
+
+5. **The zero-prefix claim is false for the round-trip targets.** "a prefix of zero bytes gives `Options::default()` with scripting enabled" holds only for `convert`. In the round-trip targets the same prefix gives `translation_mode: Faithful`, `preformatted_code: true` and `link_reference_style: Full`. Of these, only `link_reference_style` matches the default; `Options::default()` has `Pure` and `false`.
+
+6. **The `ol_number_spacing` clamp is not what `options.rs` documents.** The bullet clamp is direct: `list_marker_spacing(ul_bullet_spacing)` gives `clamp(1, 4)`. For ordered lists, `list.rs:154` clamps `ol_number_spacing + digits(highest_index) - index_str.len()`, not the field itself. So values outside 1–4 do not behave like "the clamped value" (`options.rs`'s wording). With value 0, for example, items `9.` and `10.` both get 1 space and lose alignment. The claim that out-of-range values "exercise the clamping `options.rs` documents" overstates what is exercised. It should cite `element_util.rs`/`list.rs` instead.
+
+7. **The `preformatted_code` rationale misdescribes `code.rs` and cites the wrong file.** With `false`, `handle_inline_code` calls `trim_document_whitespace()`, which trims only. Interior whitespace is kept, so `<code>a  \t b</code>` becomes `` `a  \t b` ``; nothing is collapsed. `options.rs` only says "If true, the whitespace in inline `<code>` tags will be preserved" and documents neither trimming nor collapsing. The conclusion (`false` cannot round-trip) still holds because of the trim. The text should say "trimmed (`code.rs`)".
+
+8. **The `link_reference_style` rationale is correct but incomplete, and the other targets inherit the problem.** I confirmed that `Shortcut` gives `[t] [t]` + `[t]: u` / `[t]: v`, which reads back with both links pointing at `u`. Separately, with `Referenced`, an empty link `<a href="x"></a>` under `Collapsed`/`Shortcut` gives `[][]`/`[]` and `[]: x`. `[]` is not a valid label, so the definition renders as the paragraph `[]: x`. That adds the letter `x`, which comes from an attribute, to the rendered text. In `convert`, which takes any options and runs the text check, this is reported as lost text even though htmd behaves as designed. The spec should exempt it or keep `Collapsed`/`Shortcut` out of the text check.
+
+9. **"Raw targets" and "structured targets" are never defined.** The terms are used before the Targets section. From context, `convert` and `round_trip` are raw and `round_trip_structured` is structured, but the spec should say so. It also does not say whether the structured target decodes the 13-byte prefix with the round-trip rules (`fuzz/src/options.rs` has only `Target::Convert` and `Target::RoundTrip`).
+
+##### Targets > convert
+
+10. ~~**"returns `Err`" can never happen.** `HtmlToMarkdown::convert` is `Ok(self.tree_to_markdown(&self.html_to_tree(html)?))`, and `html_to_tree` always returns `Ok`. The condition does no harm, but it should be marked as a guard against future API changes, or dropped.~~
+
+11. **"only a new thread starts from clean state" is false for `anchor.rs`.** `SCOPES` is a stack of frames. `on_doc_enter` pushes a fresh `AnchorScope` for every conversion, `on_doc_leave` pops it, and `build_referenced_anchor`/`append` touch only the top frame. A second conversion on the same thread therefore also starts clean. The stack is subscribed to only when `link_style == Referenced`. A frame can be left behind only if a conversion unwinds between enter and leave. libfuzzer-sys installs a panic hook that calls `process::abort()` (lib.rs:92-94), so that cannot happen within a fuzzing run either. The cross-input leak scenario the paragraph is built around has no path in the current code. The new thread is still a reasonable precaution, but the stated reason is wrong.
+
+12. **"replaying the inputs of that run in order" cannot be done.** libFuzzer does not record the inputs it executes; it keeps only the new-coverage corpus entries and the crash artifact. `cargo fuzz tmin` re-runs a single file. There is no list of "the inputs of that run" to replay, so this fallback procedure does not exist as written.
+
+13. **Matching the stack size is ambiguous, and "both or neither" cannot be guaranteed.** libFuzzer calls the target on the process main thread. That thread's stack comes from `RLIMIT_STACK` (usually 8 MiB) and is already partly used by libFuzzer's frames. Rust's std has no API to query a thread's stack size. `fuzz/Cargo.toml` has no `libc` dependency for `getrlimit`, and `-fork`/`-jobs` change the picture again. The spec should say how the size is obtained. Even then, the two threads start with different amounts of stack already in use, so an input close to the limit can overflow in one and not the other. Also, an overflow in the first conversion already aborts the process, so only the case "the second overflows, the first did not" matters.
+
+14. **The text check in `convert` reports cases `translation_approach.md` accepts.** The target applies "Text" to every input, with no scope filter. I verified that it fails on:
+    * `<p><span class="math math-inline">a%bc</span></p>` gives `$a$`; `bc` is lost. "Math" says "This translation loses source text, since it … replaces comments", and the scope table lists `%` in math.
+    * `<xmp>a<b>c</b></xmp>` in Faithful mode gives `<xmp>a\<b>c\</b></xmp>`, which reads back as raw text `a&lt;b&gt;…`, adding the letters `lt`/`gt`. The scope table calls `<xmp>` unspecified.
+    * The empty `Referenced` link from finding 8.
+
+    "Text" says such cases are listed there with a citation, but none are. As specified, `convert` reports lossy or unspecified cases, which contradicts the introduction ("the fuzzer must not report it").
+
+15. **Fragment parsing and document parsing disagree, and nothing exempts the case.** The text check parses `H0` as a `<body>` fragment, while `convert` parses a full document. For `<frameset>abc`, the document parser drops the text (htmd writes `""` in Pure mode and `<frameset></frameset>` in Faithful mode). The fragment parser ignores `<frameset>` and keeps `abc`. `convert` and `round_trip` both report lost text. The only exemption is for elements placed in `<head>`, and the scope table has no `<frameset>` row, so a parser-mode artifact is reported as an htmd finding.
+
+16. ~~**The timing argument leaves out the build conditions.** `README.md` says "~16ms to convert a 1.37MB Wikipedia page on Apple M4", measured as an optimized benchmark. `cargo fuzz` builds with AddressSanitizer, coverage instrumentation and debug assertions by default, and `-timeout=2` covers the whole callback: two conversions, a thread spawn, two pulldown-cmark renders and two html5ever parses for the text check. The conclusion ("two seconds is a superlinear path") is probably still safe given roughly 2500x headroom, but it is not the comparison the sentence presents.~~
+
+##### Targets > round_trip
+
+17. **Step 1 contradicts the scope table and the introduction.** Out-of-scope inputs still "fail if it loses text". Several scope rows exist because htmd changes or drops text there. Math with `%` is exactly "comments are replaced, changing source text", and `<xmp>` (finding 14) adds `lt`/`gt`. `<template>` is ambiguous: "Text" says "text nodes in document order" but does not say whether `template_contents`, which are not children, are walked. If they are, `<template>abc</template>` (which htmd writes as `<template></template>`) loses `abc`. Step 1 therefore reports cases that the scope table marks as lossy or unspecified. Either the text check needs its own exemptions here, or step 1 must skip the rows which are out of scope because of text.
+
+18. ~~**`H0` means two different things.** Here `H0` is "input `H0`", the raw string, while `round_trip_structured` says "`H0` is the parsed input, never the generator's tree". Scope parses `H0` as a full document, Comparison parses it as a fragment, and `convert` parses a full document. The spec should define `H0` once, as the HTML string fed to `convert`, and say which parse each step uses. Finding 15 shows how far the two parses can diverge.~~
+
+19. **The options for step 5 are not stated.** `H2 = render(convert(H1))` does not say whether `convert` uses the same decoded options (Referenced, Setex, Indented and so on) and the same `scripting_enabled` as step 2. It also does not say whether `H1` goes through the scope check. pulldown-cmark can emit HTML that the scope table would reject (raw HTML blocks passed through, `<pre>` with content). As written, step 5 can report a case that step 1 would have filtered out.
+
+20. **"redundant where step 4 is exact" is false.** Step 5 converts `H1`, not `H0`. Even when step 4 matches exactly, `H1` differs from `H0` as a string: it has inserted `<p>` wrappers, rows moved into `<thead>`, percent-encoded URLs, `start` removed and whitespace changed. So `convert(H1)` is a different conversion, which step 4 says nothing about. Step 5 is a check of its own, not a redundant one.
+
+21. ~~**No text check for in-scope inputs.** Steps 2-5 do not include "Text" for inputs that pass the scope check, unlike `convert` and step 1. That is probably intended, since the tree comparison covers it. But Goals item 5 and the per-word `w0`, `w1`, … naming of the structured generator ("so that the text check names the word lost") assume the text check runs on in-scope round-trip inputs. The spec should say which applies.~~
+
+22. **The `-max_len=4096` reasoning is muddled.** "the normalizer and the tree comparison are linear, but short inputs minimize to readable test cases": linearity argues for allowing long inputs, so the "but" points the wrong way. `tmin` minimizes regardless of `-max_len`. 4096 is also libFuzzer's default `max_len` when the corpus has no larger file, so the flag adds nothing unless a seed is larger.
+
+##### Running
+
+23. **The seed corpus is never used.** `cargo fuzz run <target>` with no corpus argument passes `fuzz/corpus/<target>` (cargo-fuzz `exec_fuzz` / `corpus_for`), a directory ignored by `fuzz/.gitignore`. None of the three commands names `fuzz/seeds/`, so the corpus described in "Seeds and dictionary" is never loaded. Each command needs the seed directory as an extra corpus argument, for example `cargo +nightly fuzz run convert fuzz/corpus/convert fuzz/seeds/convert -- …`.
+
+24. **`-dict=fuzz/htmd.dict` depends on the working directory.** cargo-fuzz runs the target through `cargo run --manifest-path …` without changing directory, so the relative path resolves only when the command is run from the repository root. `cargo fuzz` itself also works from `fuzz/`, where the path breaks. The spec should state the working directory or use a path that does not depend on it.
+
+25. ~~**The flags are inconsistent across targets.**~~
+    * ~~Only `convert` gets `-timeout`. `round_trip` and `round_trip_structured` fall back to libFuzzer's 1200 s default, although Goals item 2 (non-termination) covers every conversion and `round_trip` converts twice.~~
+    * ~~`convert` gets no `-dict`, even though the dictionary's tag names and references help raw byte mutation most.~~
+    * ~~`round_trip_structured` gets no flags. Its `max_len` is then libFuzzer's default rather than a documented choice.~~
+    * ~~`-rss_limit_mb=2048` equals libFuzzer's default, so it is redundant. Harmless, but it suggests a deliberate change.~~
 
 #### Implementation review rounds
 
 | Round | Findings | Main changes made |
 | ----- | -------- | ----------------- |
+| 1 | 4 | Inputs too short or not valid UTF-8 return `Corpus::Reject`, so libFuzzer keeps them out of the corpus. |
+| 2 | 3 | The exponential emphasis serialization and the stack overflows on deep nesting were fixed in htmd with regression tests, and the quadratic time on deep lists was traced to instrumentation. |
 
 #### Last implementation review
 
-(LLM and prompt used)
+Prompting Claude Opus 5.5, medium effort, with `Review fuzz/src/lib.rs, fuzz/src/options.rs, fuzz/fuzz_targets/convert.rs and fuzz/fuzz_targets/round_trip.rs against the sections "Layout", "Input decoding", "Targets > convert", "Targets > round_trip" and "Running" of fuzzer/fuzzer-spec.md. Report only places where the code disagrees with the spec or is incorrect. Write numbered findings to review.md.` produced the following output; strikethrough indicates LLM output that I deemed incorrect or irrelevant.
 
-(LLM output, possibly with strikethrough)
+**Review: fuzz crate vs. fuzzer/fuzzer-spec.md**
+
+Scope: `fuzz/src/lib.rs`, `fuzz/src/options.rs`, `fuzz/fuzz_targets/convert.rs`, `fuzz/fuzz_targets/round_trip.rs` against "Layout", "Input decoding", "Targets > convert", "Targets > round_trip" and "Running". The crate builds on nightly and the 6 unit tests in `options.rs` pass. Field order, variant order, defaults, the `(d + b) mod n` rule, wrapping spacing, odd-byte flips, the 13-byte rejection, UTF-8 rejection, the three fixed round-trip fields, the `ENABLE_TABLES | ENABLE_MATH` renderer, and steps 1-5 of `round_trip` all match the spec. These places disagree with it:
+
+1. ~~**Layout / Running: `fuzz/seeds/` and `fuzz/htmd.dict` are missing.** "Layout" says `fuzz/seeds/<target>/` holds each target's seed corpus and `fuzz/htmd.dict` the dictionary. Neither exists. The "Running" commands pass `fuzz/seeds/convert`, `fuzz/seeds/round_trip` and `-dict=fuzz/htmd.dict`, so they do not work as written: libFuzzer exits when a corpus directory it is given does not exist, and when the `-dict` file is missing.~~
+
+2. ~~**convert: the text check and `render` run on libFuzzer's thread, not on the big-stack thread** (`fuzz_targets/convert.rs`, lines with `render(&first)` / `check_text`). The spec runs both conversions on threads with the same stack size so that "a deep input overflows in both or in neither", and says "arbitrarily deep nesting is in scope" and "a crash … from the `convert` target is always case 3" (an htmd finding). But `render(&first)` and `check_text` (which parses `H0` and `render(M)` with html5ever and walks both trees) run on the fuzzer's default stack, which is smaller than the 8 MiB `STACK_SIZE` and grows heavier under ASan. A deep input that htmd converts without trouble on the 8 MiB thread can then overflow in the fuzzer's own walk or in pulldown-cmark. That crash would be wrongly filed as an htmd finding. Either run the text check (and `render`) inside the same `STACK_SIZE` thread, or require `text.rs` to walk the tree without recursion.~~
+
+3. ~~**Layout: `render` lives in `lib.rs` itself, not in a module.** "Layout" says the shared code "lives in modules under `fuzz/src/`, declared by `fuzz/src/lib.rs`". `lib.rs` defines `render`, the pulldown-cmark renderer that all targets and the text check use, directly instead of in a module. This is minor: either move it into a module (for example next to the comparison) or accept the deviation in the spec.~~
 
 ### Mariya Belyavskaya
 
