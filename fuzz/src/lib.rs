@@ -3,6 +3,7 @@
 pub mod compare;
 pub mod generator;
 pub mod options;
+pub mod oracle;
 pub mod scope;
 pub mod text;
 
