@@ -164,7 +164,8 @@ Comparison
 
 Both sides are parsed by html5ever as HTML fragments in the context of a
 `<body>` element, with the same `scripting_enabled` as the conversion and in
-quirks mode, as `convert` parses a document without a doctype, and compared as
+quirks mode, as `convert` parses a document without a doctype (a doctype is
+out of scope), and compared as
 trees below the fragment root: element names, attribute sets
 (order ignored), text, and comment data. `H1` is a fragment, since
 pulldown-cmark writes no doctype, `<html>` or `<body>`; `H0` is parsed the same
@@ -201,16 +202,17 @@ only:
 else, and is applied alike to both sides, rule by rule in order. Each rule
 cites what accepts the difference. A difference with no citation is reported;
 it is never fixed by adding a rule here alone. In particular `N` keeps `<i>`
-apart from `<em>` and `<b>` apart from `<strong>`: `translation_approach.md`
-merges the names for Pure mode only ("Emphasis and strong emphasis").
+apart from `<em>`, `<b>` apart from `<strong>`, and whitespace at the start or
+end of an emphasis inside it: `translation_approach.md` merges the names and
+moves the whitespace out for Pure mode only ("Emphasis and strong emphasis").
 
-1. **Whitespace.** Outside `<pre>` and `<textarea>`, a run of ASCII whitespace
-   becomes one space, and whitespace (as `str::trim_start` defines it, which
-   htmd uses) at the start or end of an `<em>`, `<i>`, `<strong>` or `<b>`
-   moves out of it (step 3 of the emphasis "Approach"). Then, outside them, at
-   the fragment root and in an element which is not an inline child
-   (see "Implied paragraphs"), whitespace at the start and end of the content
-   and next to a child which is not an inline child is removed. HTML
+1. **Whitespace.** Outside `<pre>`, `<listing>` and `<textarea>`, a run of ASCII
+   whitespace becomes one space. Then, outside them, at the fragment root and
+   in an element which is not an inline child (see "Implied paragraphs"),
+   whitespace at the start and end of the content
+   is removed, and, except in a heading, paragraph, table cell or caption,
+   whose content is inline, so is whitespace next to a child which is not an
+   inline child. HTML
    renders such whitespace identically, and htmd collapses it by design ("All
    raw HTML inlines will have whitespace collapsed in their contents").
 2. **Code blocks.** A `<pre>` whose only child is a `<code>` loses one trailing
@@ -261,7 +263,7 @@ the case with a citation, as "Scope" does.
 
 ### Scope
 
-An input is out of scope, and rejected before step 2 of `round_trip`, when
+An input is out of scope, and `round_trip` checks only its text (step 1), when
 `H0`, parsed as a full document as `convert` parses it, holds any of the
 following. Each is a case `translation_approach.md`
 calls lossy or unspecified or does not specify, or one an upstream issue
@@ -276,9 +278,9 @@ case.
 | Inside a `<pre>`, a `<pre>`, `<script>`, `<style>` or `<textarea>`, or a comment holding `</pre>`, `</script>`, `</style>` or `</textarea>` in any case, followed later in the `<pre>` by a line ending | Special case: unspecified |
 | `<iframe>` whose text holds anything but ASCII letters, digits and spaces; `<noembed>`, `<noframes>`, `<xmp>` or `<plaintext>`; `<noscript>` when scripting is enabled | Special case: unspecified (the paragraphs table specifies a plain `<iframe>`) |
 | `<template>` | Not specified: its content is not among its children |
-| A CR (U+000D) in text inside `<pre>` or `<textarea>` | Not specified: the HTML parser reads it back as a line feed |
-| A doctype, any child of `<head>`, or a `<frameset>` | Special case: doctype dropped; head and frameset not specified |
-| A math span whose text holds an unescaped `%` | "Math": comments are replaced, changing source text |
+| A CR (U+000D) in text inside `<pre>` or `<textarea>`, or in the `title` or `alt` of an `<a>` or `<img>` | Not specified: the HTML parser reads it back as a line feed |
+| A doctype, any child of `<head>`, a `<frameset>`, or a comment after the `<body>` | Not specified: the document parse differs from the fragment parse of "Comparison" (no-quirks mode after a doctype; the head, a frameset and a trailing comment placed apart) |
+| A math span of the form the "Math" section describes whose text holds an unescaped `%` | "Math": comments are replaced, changing source text |
 
 Lists are in scope. The "Lists" section of `translation_approach.md` is under
 development, so the round trip checks the list translation htmd implements,
@@ -322,7 +324,8 @@ the difference arises:
 
 1. **Fuzzer bug.** `N`, a matching rule, the text check, the scope check or
    the generator hides or invents a difference against the rules above. Fix it
-   in `fuzz/src/` and add the HTML to `fuzz/seeds/<target>/` (the generated
+   in `fuzz/src/` and add the HTML, with the option prefix it decoded from,
+   to `fuzz/seeds/<target>/` (the generated
    HTML to `round_trip`).
 2. **Reference bug.** html5ever or pulldown-cmark disagrees with the HTML
    standard, the CommonMark spec or the table and math specs it implements. Report it upstream and add a scope entry

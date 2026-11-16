@@ -16,8 +16,8 @@ const ROWS: [&str; 9] = [
     "type 1 end condition then a line ending in <pre>: Special case: unspecified",
     "raw text of <iframe>, <noembed>, <noframes>, <xmp>, <plaintext> or <noscript>: Special case: unspecified",
     "<template>: Not specified: its content is not among its children",
-    "CR in <pre> or <textarea>: Not specified: the HTML parser reads it back as a line feed",
-    "doctype, child of <head> or <frameset>: Special case: doctype dropped; head and frameset not specified",
+    "CR in <pre>, <textarea>, or a title or alt: Not specified: the HTML parser reads it back as a line feed",
+    "doctype, child of <head>, <frameset> or comment after <body>: Not specified: the document parse differs from the fragment parse",
     "math holding %: \"Math\": comments are replaced, changing source text",
 ];
 
@@ -92,7 +92,11 @@ impl Walk {
         };
         for child in document.children.borrow().iter() {
             walk.visit(child, Context::Block, false, false, false);
+            if is_element(child, "html") {
+                walk.rows[7] |= comment_after(child, "body");
+            }
         }
+        walk.rows[7] |= comment_after(&document, "html");
         walk
     }
 
@@ -144,6 +148,12 @@ impl Walk {
                         self.rows[7] = true;
                         self.parsers_disagree = true;
                     }
+                    "a" | "img" => {
+                        self.rows[6] |= attrs.borrow().iter().any(|attr| {
+                            matches!(&*attr.name.local, "title" | "alt")
+                                && attr.value.contains('\r')
+                        });
+                    }
                     "span" => {
                         let attrs = attrs.borrow();
                         let children = node.children.borrow();
@@ -177,6 +187,21 @@ impl Walk {
             _ => {}
         }
     }
+}
+
+fn is_element(node: &Handle, tag: &str) -> bool {
+    matches!(&node.data, NodeData::Element { name, .. } if &*name.local == tag)
+}
+
+/// Whether a comment among the children of `parent` follows its `tag` child.
+fn comment_after(parent: &Handle, tag: &str) -> bool {
+    parent
+        .children
+        .borrow()
+        .iter()
+        .skip_while(|child| !is_element(child, tag))
+        .skip(1)
+        .any(|child| matches!(child.data, NodeData::Comment { .. }))
 }
 
 /// The text of the descendants of `node`, in document order.
@@ -320,6 +345,7 @@ mod tests {
     fn carriage_return_in_preformatted() {
         assert_eq!(row("<pre>a&#13;b</pre>"), Some(6));
         assert_eq!(row("<textarea>a&#13;b</textarea>"), Some(6));
+        assert_eq!(row(r#"<a href="x" title="a&#13;b">t</a>"#), Some(6));
     }
 
     #[test]
@@ -327,6 +353,8 @@ mod tests {
         assert_eq!(row("<!DOCTYPE html><p>a</p>"), Some(7));
         assert_eq!(row("<title>a</title>"), Some(7));
         assert_eq!(row("<frameset>a"), Some(7));
+        assert_eq!(row("a</body><!--c-->b"), Some(7));
+        assert_eq!(row("<!--c-->a"), None);
     }
 
     #[test]

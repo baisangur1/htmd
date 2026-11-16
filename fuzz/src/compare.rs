@@ -181,7 +181,8 @@ fn normalize(children: &mut Vec<Node>, parent: &str, preformatted: bool) {
             children,
         } = child
         {
-            let preformatted = preformatted || matches!(name.as_str(), "pre" | "textarea");
+            let preformatted =
+                preformatted || matches!(name.as_str(), "pre" | "listing" | "textarea");
             normalize(children, name, preformatted);
             normalize_element(name, attrs, children);
         }
@@ -196,59 +197,20 @@ fn normalize(children: &mut Vec<Node>, parent: &str, preformatted: bool) {
     if preformatted {
         return;
     }
-    move_emphasis_whitespace_out(children);
     if parent.is_empty() || !is_inline(parent) {
-        trim_block_content(children);
+        let inline_content = matches!(
+            parent,
+            "h1" | "h2" | "h3" | "h4" | "h5" | "h6" | "p" | "td" | "th" | "caption"
+        );
+        trim_block_content(children, inline_content);
     }
 }
 
-/// Rule 1: whitespace at the start or end of an emphasis moves out of it.
-/// htmd strips it with `str::trim_start` and `str::trim_end`.
-fn move_emphasis_whitespace_out(children: &mut Vec<Node>) {
-    let mut index = 0;
-    while index < children.len() {
-        let (mut before, mut after) = (String::new(), String::new());
-        if let Node::Element {
-            name,
-            children: inner,
-            ..
-        } = &mut children[index]
-            && matches!(name.as_str(), "em" | "i" | "strong" | "b")
-        {
-            if let Some(Node::Text(text)) = inner.first_mut() {
-                let trimmed = text.trim_start().len();
-                before = text.drain(..text.len() - trimmed).collect();
-            }
-            if let Some(Node::Text(text)) = inner.last_mut() {
-                let trimmed = text.trim_end().len();
-                after = text.drain(trimmed..).collect();
-            }
-            inner.retain(|node| !matches!(node, Node::Text(text) if text.is_empty()));
-        }
-        if !after.is_empty() {
-            children.insert(index + 1, Node::Text(after));
-        }
-        if !before.is_empty() {
-            children.insert(index, Node::Text(before));
-            index += 1;
-        }
-        index += 1;
-    }
-    for node in std::mem::take(children) {
-        match (children.last_mut(), node) {
-            (Some(Node::Text(previous)), Node::Text(text)) => {
-                previous.push_str(&text);
-                *previous = collapse_whitespace(previous);
-            }
-            (_, node) => children.push(node),
-        }
-    }
-}
-
-/// Rule 1: whitespace at the start and end of a block's content and next to a
-/// child which is not an inline child.
-fn trim_block_content(children: &mut Vec<Node>) {
-    let is_block = |node: Option<&Node>| node.is_none_or(|node| !is_inline_child(node));
+/// Rule 1: whitespace at the start and end of a block's content and, unless
+/// that content is inline, next to a child which is not an inline child.
+fn trim_block_content(children: &mut Vec<Node>, inline_content: bool) {
+    let is_block =
+        |node: Option<&Node>| node.is_none_or(|node| !inline_content && !is_inline_child(node));
     for index in 0..children.len() {
         let after_block = is_block(index.checked_sub(1).and_then(|before| children.get(before)));
         let before_block = is_block(children.get(index + 1));
@@ -558,25 +520,25 @@ mod tests {
         assert!(matches("<p> a </p>\n<p>b</p>", "<p>a</p><p>b</p>"));
         assert!(matches("<pre>a  b</pre>", "<pre>a  b</pre>"));
         assert!(!matches("<pre>a  b</pre>", "<pre>a b</pre>"));
+        assert!(!matches(
+            "<listing>a  b</listing>",
+            "<p><listing>a b</listing></p>"
+        ));
         // "At the document root": `<p>a</p><br>` reads back as `<p>a</p>⏎<br>`.
         assert!(matches("<p>a</p><br>", "<p>a</p>\n<br>"));
         assert!(matches("a <div>b</div>", "<p>a</p>\n<div>b</div>"));
         assert!(!matches("<p>a b</p>", "<p>ab</p>"));
+        // In a paragraph the space next to an `<iframe>` shows.
+        assert!(!matches(
+            "<p>a <iframe>x</iframe> b</p>",
+            "<p>a<iframe>x</iframe>b</p>"
+        ));
     }
 
     #[test]
-    fn emphasis_whitespace_moves_out() {
-        // Step 3 of the emphasis "Approach": `x<em> a </em>y` gives `x *a* y`.
-        assert!(matches("<p>x<em> a </em>y</p>", "<p>x <em>a</em> y</p>"));
-        assert!(matches(
-            "<p><strong><em> a</em></strong></p>",
-            "<p><strong><em>a</em></strong></p>"
-        ));
-        assert!(!matches("<p>x<em>a</em>y</p>", "<p>x <em>a</em> y</p>"));
-        assert!(matches(
-            "<p>x<em>&nbsp;a</em></p>",
-            "<p>x&nbsp;<em>a</em></p>"
-        ));
+    fn emphasis_whitespace_stays_inside() {
+        // The emphasis "Approach" moves it out for Pure mode only.
+        assert!(!matches("<p>x<em> a </em>y</p>", "<p>x <em>a</em> y</p>"));
     }
 
     #[test]
