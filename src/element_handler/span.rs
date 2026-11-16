@@ -4,7 +4,7 @@ use std::{iter::Peekable, str::Chars};
 
 use crate::{
     Element,
-    element_handler::element_util::serialize_if_extra_attrs,
+    element_handler::element_util::{math_delimiter, serialize_if_extra_attrs},
     element_handler::{HandlerResult, Handlers},
     util::{
         node::{copy_element_holding_text, get_parent_node},
@@ -14,15 +14,8 @@ use crate::{
 
 pub(super) fn span_handler(handlers: &dyn Handlers, element: &Element) -> Option<HandlerResult> {
     // See the "Math" section of `translation_approach.md`.
-    if element.attrs.len() == 1
-        && let attr = &element.attrs[0]
-        && *attr.name.local == *"class"
-        && let Some(delimiter) = match &*attr.value {
-            "math math-inline" => Some("$"),
-            "math math-display" => Some("$$"),
-            _ => None,
-        }
-        && let Some(text) = text_content(element.node)
+    if let Some(delimiter) = math_delimiter(element.attrs)
+        && let Some(text) = text_content(element.node.as_rc())
     {
         let is_inline = delimiter == "$";
         let source = math_source(&text);
@@ -37,14 +30,14 @@ pub(super) fn span_handler(handlers: &dyn Handlers, element: &Element) -> Option
         // Serializing collapses the line endings of the original text, which
         // would run each of its comments on over the lines after it.
         let span = copy_element_holding_text(
-            element.node,
-            get_parent_node(element.node).as_ref(),
+            element.node.as_rc(),
+            get_parent_node(element.node.as_rc()).as_ref(),
             StrTendril::from_slice(&source),
         );
         return translate_as_span(
             handlers,
             &Element {
-                node: &span,
+                node: crate::Node::from_rc_ref(&span),
                 ..*element
             },
         );

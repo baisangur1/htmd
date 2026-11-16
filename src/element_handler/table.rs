@@ -23,7 +23,8 @@ pub(crate) fn table_handler(handlers: &dyn Handlers, element: &Element) -> Optio
     // a block context.
     serialize_if_extra_attrs_or_inline!(handlers, element, 0);
     if handlers.options().translation_mode == TranslationMode::Pure
-        && (!has_explicit_headers(element.node) || is_inside_table_cell(element.node))
+        && (!has_explicit_headers(element.node.as_rc())
+            || is_inside_table_cell(element.node.as_rc()))
     {
         return handlers.fallback(element);
     }
@@ -33,7 +34,7 @@ pub(crate) fn table_handler(handlers: &dyn Handlers, element: &Element) -> Optio
         mut headers,
         rows,
         all_children_translated,
-    } = extract_table_content(handlers, element.node);
+    } = extract_table_content(handlers, element.node.as_rc());
 
     if handlers.options().translation_mode == TranslationMode::Faithful && !all_children_translated
     {
@@ -100,19 +101,20 @@ fn extract_table_content(
     let mut has_tbody = false;
 
     for child in table_node.children.borrow().iter() {
-        let NodeData::Element { name, .. } = &child.data else {
-            // The parser foster-parents a table's stray text out of it, so the
-            // only text reaching here is the whitespace between its elements. A
-            // comment has nowhere to go in a Markdown table.
-            table.all_children_translated &= matches!(child.data, NodeData::Text { .. });
+        let Some(tag) = get_node_tag_name(child) else {
+            // A comment, or other text in a tree built elsewhere, has nowhere
+            // to go in a Markdown table.
+            table.all_children_translated &= is_whitespace_between_table_elements(child);
             continue;
         };
 
         // A table only builds CommonMark in a block context, so its caption,
         // sections, rows and cells all sit in one.
-        match name.local.as_ref() {
+        match tag {
             "caption" => {
-                if let Some(result) = handlers.handle(child, Context::BLOCK) {
+                if let Some(result) =
+                    handlers.handle(crate::Node::from_rc_ref(child), Context::BLOCK)
+                {
                     // A caption which only HTML can express takes the whole
                     // table with it: written as an HTML block of its own it
                     // would land outside any table, where the "in body"
@@ -156,7 +158,7 @@ fn extract_table_content(
             }
             // The parser wraps a stray `<tr>` in a `<tbody>`, so a row reaches
             // a table as a direct child of one only in a tree built elsewhere
-            // and handed to `HtmlToMarkdown::tree_to_markdown`. Read it as a row
+            // and handed to `HtmlToMarkdown::convert`. Read it as a row
             // of the `<tbody>` the parser would have wrapped it in.
             "tr" => extract_row(handlers, child, &mut table, &mut has_thead),
             // A `<colgroup>`, its `<col>`s, and anything else a table may hold
@@ -284,20 +286,17 @@ fn extract_body_row(
     }
 }
 
-/// Whether every child of `node` is a `tag` element, ignoring text. Another
-/// element, or a comment, would be dropped from the Markdown table, which only
-/// faithful mode can avoid by writing the table as HTML; text is exempt because
-/// the parser foster-parents a table's stray text out of it, leaving only the
-/// whitespace between its elements.
+/// Whether every child of `node` is a `tag` element, ignoring whitespace.
 fn holds_only(node: &Rc<markup5ever_rcdom::Node>, tag: &str) -> bool {
-    node.children
-        .borrow()
-        .iter()
-        .all(|child| match &child.data {
-            NodeData::Element { name, .. } => name.local.as_ref() == tag,
-            NodeData::Text { .. } => true,
-            _ => false,
-        })
+    node.children.borrow().iter().all(|child| {
+        is_whitespace_between_table_elements(child) || get_node_tag_name(child) == Some(tag)
+    })
+}
+
+/// Whether `node` is the whitespace text which the [in table text](https://html.spec.whatwg.org/multipage/parsing.html#parsing-main-intabletext) mode keeps in a table.
+fn is_whitespace_between_table_elements(node: &markup5ever_rcdom::Node) -> bool {
+    matches!(&node.data, NodeData::Text { contents }
+        if contents.borrow().chars().all(|c| c.is_ascii_whitespace()))
 }
 
 /// Whether `node`'s subtree holds a comment whose text has a `|`, which splits
@@ -336,8 +335,7 @@ fn has_explicit_headers(node: &Rc<markup5ever_rcdom::Node>) -> bool {
     let mut pending = vec![(node.clone(), true)];
     while let Some((node, is_root)) = pending.pop() {
         for child in node.children.borrow().iter() {
-            if let NodeData::Element { name, .. } = &child.data {
-                let tag_name = name.local.as_ref();
+            if let Some(tag_name) = get_node_tag_name(child) {
                 if !is_root && tag_name == "table" {
                     continue;
                 }
@@ -378,12 +376,11 @@ fn extract_row_cells(
     let mut all_translated = has_no_attributes(row_node) && holds_only(row_node, cell_tag);
 
     for cell_node in row_node.children.borrow().iter() {
-        if let NodeData::Element { name, .. } = &cell_node.data
-            && name.local.as_ref() == cell_tag
-        {
+        if get_node_tag_name(cell_node) == Some(cell_tag) {
             // See `extract_table_content`: a cell of a translated table is
             // always in a block context.
-            let Some(res) = handlers.handle(cell_node, Context::BLOCK) else {
+            let Some(res) = handlers.handle(crate::Node::from_rc_ref(cell_node), Context::BLOCK)
+            else {
                 continue;
             };
             // A comment holding a `|` is looked for here rather than over the

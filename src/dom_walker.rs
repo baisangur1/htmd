@@ -4,14 +4,17 @@ use std::{borrow::Cow, rc::Rc};
 
 use crate::{
     Context, Element,
-    element_handler::{ElementHandlers, element_util::serialize_element},
+    element_handler::{
+        ElementHandlers,
+        element_util::{math_delimiter, serialize_element},
+    },
 };
 
 use super::{
     options::TranslationMode,
     util::{
         escape::{escape_html, index_of_markdown_ordered_item_delimiter, is_markdown_atx_heading},
-        node::{copy_element_holding_text, is_block_element},
+        node::{copy_element_holding_text, get_node_tag_name, is_block_element},
         text::{
             TrimDocumentWhitespace, compress_whitespace, concat_strings, frame_as_block,
             trim_newlines,
@@ -49,7 +52,7 @@ pub(crate) fn walk_node(
             stacker::maybe_grow(RED_ZONE, STACK_SEGMENT, || {
                 walk_element(
                     node,
-                    name.local.as_ref(),
+                    &name.local,
                     &attrs.borrow(),
                     output,
                     handlers,
@@ -173,16 +176,7 @@ fn is_passthrough_span(
     attrs: &[html5ever::Attribute],
     handlers: &ElementHandlers,
 ) -> bool {
-    tag == "span" && handlers.can_passthrough_span && !is_math_span(attrs)
-}
-
-fn is_math_span(attrs: &[html5ever::Attribute]) -> bool {
-    attrs.len() == 1
-        && attrs[0].name.local.as_ref() == "class"
-        && matches!(
-            attrs[0].value.as_ref(),
-            "math math-inline" | "math math-display"
-        )
+    tag == "span" && handlers.can_passthrough_span && math_delimiter(attrs).is_none()
 }
 
 /// The bytes which, at the start of a text node, could open a CommonMark block
@@ -216,11 +210,7 @@ pub(crate) fn walk_children(
     // Return value: `markdown_translated`.
 ) -> bool {
     let mut trim_leading_spaces = !context.literal && is_parent_block_element;
-    let tag = match &node.data {
-        NodeData::Document => Some("html"),
-        NodeData::Element { name, .. } => Some(name.local.as_ref()),
-        _ => None,
-    };
+    let tag = get_node_tag_name(node);
     let mut markdown_translated = true;
     let children = node.children.borrow();
     let mut index = 0;
@@ -251,10 +241,7 @@ pub(crate) fn walk_children(
             continue;
         };
 
-        let is_block = match &child.data {
-            NodeData::Element { name, .. } => is_block_element(&name.local),
-            _ => false,
-        };
+        let is_block = get_node_tag_name(child).is_some_and(is_block_element);
 
         // Preformatted content keeps every space it holds, so a block inside
         // one trims nothing.
@@ -325,19 +312,25 @@ fn can_combine(n1: &Node, n2: &Node) -> bool {
 
     // Don't combine adjacent hyperlinks, or adjacent math, which pulldown-cmark
     // reads apart: `$a$$b$` is two math expressions.
-    *name1.local != *"a"
-        && !(*name1.local == *"span" && is_math_span(&attrs1.borrow()))
+    &name1.local != "a"
+        && !(&name1.local == "span" && math_delimiter(&attrs1.borrow()).is_some())
         && (name1 == name2
-            // Treat `i` and `em` tags as the same element; likewise for `b` and
-            // `strong`.
-            || *name1.local == *"i" && *name2.local == *"em"
-            || *name1.local == *"em" && *name2.local == *"i"
-            || *name1.local == *"b" && *name2.local == *"strong"
-            || *name1.local == *"strong" && name2.local == *"b")
+            // Names differing only in prefix combine too: no handler reads the
+            // prefix, and the serializer drops it.
+            || combining_tag(&name1.local) == combining_tag(&name2.local))
         && template_contents1.borrow().is_none()
         && template_contents2.borrow().is_none()
         && attrs1 == attrs2
         && mathml_annotation_xml_integration_point1 == mathml_annotation_xml_integration_point2
+}
+
+/// `tag`'s name for combining, which tags writing the same Markdown share.
+fn combining_tag(tag: &str) -> &str {
+    match tag {
+        "i" => "em",
+        "b" => "strong",
+        _ => tag,
+    }
 }
 
 /// Appends `node`, an element of a combinable run, to `output` as a raw HTML
@@ -353,8 +346,8 @@ fn append_serialized_inline(
         unreachable!("only element nodes form a combinable run")
     };
     let element = Element {
-        node,
-        tag: name.local.as_ref(),
+        node: crate::Node::from_rc_ref(node),
+        tag: &name.local,
         attrs: &attrs.borrow(),
         context,
         skipped_handlers: 0,

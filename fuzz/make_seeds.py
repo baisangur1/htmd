@@ -73,7 +73,7 @@ def translation_approach_rows():
 
 def turndown_cases():
     """The `<div class="input">` payload of each case of the turndown index."""
-    source = (ROOT / "tests/html/turndown_test_index.html").read_text(encoding="utf-8")
+    source = (ROOT / "tests/turndown_cases/turndown_test_index.html").read_text(encoding="utf-8")
     cases = []
     position = 0
     while True:
