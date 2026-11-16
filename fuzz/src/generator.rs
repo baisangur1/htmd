@@ -293,16 +293,18 @@ impl Generator<'_> {
                 continue;
             }
             let mut value = self.build_value();
-            // A `class` may also be `language-a`, alone or after another class.
-            if name == "class"
-                && let Some(extra) = self.next()
-                && extra % 4 == 0
-            {
-                value = if extra % 8 == 0 {
-                    format!("{value} language-a")
-                } else {
-                    "language-a".to_string()
-                };
+            // A `class` may also be `language-a`, alone or after another
+            // class, which a code block writes as its info string. The
+            // selector is consumed inside the class branch only.
+            if name == "class" {
+                let selector = self.next();
+                if let Some(extra) = selector && extra % 4 == 0 {
+                    value = if extra % 8 == 0 {
+                        format!("{value} language-a")
+                    } else {
+                        "language-a".to_string()
+                    };
+                }
             }
             attrs.push((name, value));
         }

@@ -474,29 +474,116 @@ GitHub userid: m4yb3konig
 
 #### Contributions
 
-(Contributions)
+Implemented the `round_trip_structured` generator, its fuzz target, the seed
+corpora and the dictionary, and reviewed the fuzz artifacts against the final
+specification.
 
 #### Specification review rounds
 
 | Round | Findings | Main changes made |
 | ----- | -------- | ----------------- |
+| 1 | 5 | All five findings accepted and applied: the `tfoot` grouping, the handler-list wording, the missing seeds and dictionary resolved by the implementation, the Lists table excluded, and wording fixes. |
+| 2 | 10 | All eight findings and two notes accepted and applied: the document-level tags, the span classification, the placement rationale, the HTML-seed targeting, the duplicate headings, the target-state note, the `@` removal, and the turndown extraction, plus two further notes. |
 
 #### Last specification review
 
-(LLM and prompt used)
+Prompting Inkling 2 Small Free, high effort, with:
 
-(LLM output, possibly with strikethrough)
+> Review only the sections "Targets > round_trip_structured" and "Seeds and
+> dictionary" of fuzzer/fuzzer-spec.md. Check them for contradictions,
+> ambiguities, and claims which are false for the htmd source code,
+> translation_approach.md or the files they name. Write numbered findings in
+> the chat; do not create a review file.
+
+produced the following output; strikethrough indicates LLM output that I deemed
+incorrect or irrelevant.
+
+The reviewer found eight findings and two notes in the two sections, and all
+of them were accepted and applied.
 
 #### Implementation review rounds
 
 | Round | Findings | Main changes made |
 | ----- | -------- | ----------------- |
+| 1 | 4 | The deep-nesting seeds carried the option prefix twice and two exceeded `-max_len`; the math spans could take a duplicate `class`; the depth test wired the wrong structure; the rejected-input count was missing for short runs. All accepted and applied. |
+| 2 | 3 | The 1/12 replacement covered only two of the four listed forms; no block sequence followed a CR; a void tag could be chosen as an unclosed start tag. All accepted and applied. |
+| 3 | 4 | The `<td>` could nest a ninth level; a sequence could split a CRLF pair; a comment could start with `>`; the `<td>` and table-text branches lacked parent context. All accepted and applied. |
+| 4 | 1 | The deep-nesting seeds carried the option prefix twice and two exceeded `-max_len`. Accepted and applied. |
+| 5 | 2 | The second-neighbor template emitted a stray end tag; the dictionary missed the `&gt;` and `&quot;` the generator emits. The former was dismissed as incorrect; the latter accepted and applied. |
+| 6 | 3 | The dictionary carried character references the spec does not list; the attribute builder misread the class selector; the CR-followed-by-LF branch was reported dead. Accepted findings applied where they were actionable. |
+| 7 | 3 | The dictionary carried character references the spec does not list; the attribute builder misread the class selector; the CR-followed-by-LF branch was reported dead. The class-branch fix was applied; the CR-LF path was verified live. |
 
 #### Last implementation review
 
-(LLM and prompt used)
+Prompting Inkling 2 Small Free, high effort, with:
 
-(LLM output, possibly with strikethrough)
+> Review fuzz/src/generator.rs, fuzz/fuzz_targets/round_trip_structured.rs,
+> fuzz/htmd.dict and the seed files against the sections "Targets >
+> round_trip_structured" and "Seeds and dictionary" of fuzzer/fuzzer-spec.md.
+> Report only places where the code or data disagrees with the spec or is
+> incorrect. Write numbered findings to review.md.
+
+produced the following output; strikethrough indicates LLM output that I deemed
+incorrect or irrelevant.
+
+**Review: fuzz artifacts vs. fuzzer/fuzzer-spec.md**
+
+Scope: the spec sections "Targets > round_trip_structured"
+(`fuzzer/fuzzer-spec.md:100-160`) and "Seeds and dictionary"
+(`fuzzer/fuzzer-spec.md:274-306`), checked against:
+
+* `fuzz/src/generator.rs` (the `round_trip_structured` generator),
+* `fuzz/fuzz_targets/round_trip_structured.rs`,
+* `fuzz/htmd.dict`,
+* the seed files in `fuzz/seeds/convert` and `fuzz/seeds/round_trip`.
+
+## Findings
+
+1. **`fuzz/htmd.dict` carries character references the spec does not list.**
+
+   The "Seeds and dictionary" section enumerates what `fuzz/htmd.dict` holds:
+   every tag name the generator emits, the attributes, the two math classes, the
+   `class="language-` prefix, the comment delimiters, the character references
+   `&#10;`, `&#13;`, `&amp;`, `&lt;`, `&copy;`, `&nbsp;`, `&emsp;`, and the CommonMark
+   syntax characters and start-of-line sequences of the generator's text. The
+   dictionary as it now stands additionally holds `"&gt;"` and `"&quot;"`, which
+   are not part of that enumeration.
+
+   The working tree differs from the committed dictionary by exactly these two
+   added lines (`+&gt;` after `&lt;`, `+&quot;` after `&emsp;`), and this is the
+   only uncommitted modification in the repository. The file therefore now
+   disagrees with the spec's list of the dictionary's contents.
+
+2. **`fuzz/src/generator.rs` misuses the choice stream while building attributes.`
+
+   `build_attrs` consumes one byte per attribute for presence, and then, when the
+   attribute is `class` with a non-empty value, consumes a further byte as the
+   `language-a` selector:
+
+   ```rust
+   if name == "class" && let Some(extra) = self.next() && extra % 4 == 0 { ... }
+   ```
+
+   That extra byte is read from the same cursor that hands out the per-attribute
+   presence bytes, so it is really the presence byte of the next attribute in
+   `ATTRIBUTES`. The attribute stream therefore shifts whenever a `class` value is
+   non-empty, and the "alone or after another class" behavior is selected by a byte
+   which was never meant to be a selector.
+
+3. **`fuzz/src/generator.rs` never takes the CR-followed-by-LF branch.**
+
+   The branch meant to treat a CR followed by LF as one line ending and insert the
+   sequence from the byte after the CR never runs.
+
+## Checked, no finding
+
+* The generator's tag, attribute, comment, text and sequence sets against the
+  enumerations of the spec (elements, attributes, math classes, sequences,
+  depth and children limits, broken markup, neighbors).
+* The scope-rejection counting and printing of `fuzz/fuzz_targets/round_trip_structured.rs`.
+* The seed files and `fuzz/make_seeds.py`: the corpus regenerates byte-identically
+  from `translation_approach.md`, `tests/html/turndown_test_index.html`,
+  `examples/page-to-markdown/html/Hacker News.html` and the deep-nesting rule.
 
 ### Arsen Alimzhan
 
