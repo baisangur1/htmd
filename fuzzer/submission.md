@@ -484,22 +484,72 @@ specification.
 | ----- | -------- | ----------------- |
 | 1 | 5 | All five findings accepted and applied: the `tfoot` grouping, the handler-list wording, the missing seeds and dictionary resolved by the implementation, the Lists table excluded, and wording fixes. |
 | 2 | 10 | All eight findings and two notes accepted and applied: the document-level tags, the span classification, the placement rationale, the HTML-seed targeting, the duplicate headings, the target-state note, the `@` removal, and the turndown extraction, plus two further notes. |
+| 3 | 16 | The scope count is also printed during the run, numbered words end in a letter, the placement and attribute wording fixed, seeds keep a stated prefix, include the Lists table and expand `<br>` runs to two and three. |
 
 #### Last specification review
 
-Prompting Inkling 2 Small Free, high effort, with:
+Prompting Claude Opus 5.5, medium effort, with `Review only the sections "Targets > round_trip_structured" and "Seeds and dictionary" of fuzzer/fuzzer-spec.md. Check them for contradictions, ambiguities, and claims which are false for the htmd source code, translation_approach.md or the files they name. Write numbered findings in the chat; do not create a review file.` produced the following output; strikethrough indicates LLM output that I deemed incorrect or irrelevant.
 
-> Review only the sections "Targets > round_trip_structured" and "Seeds and
-> dictionary" of fuzzer/fuzzer-spec.md. Check them for contradictions,
-> ambiguities, and claims which are false for the htmd source code,
-> translation_approach.md or the files they name. Write numbered findings in
-> the chat; do not create a review file.
+I reviewed "Targets > round_trip_structured" and "Seeds and dictionary" in fuzzer/fuzzer-spec.md against `fuzz/src/generator.rs`, `fuzz/fuzz_targets/round_trip_structured.rs`, `fuzz/src/{options,oracle,text}.rs`, `fuzz/make_seeds.py`, `fuzz/htmd.dict`, `fuzz/seeds/`, `src/` (handler registration, `dom_walker.rs` escaping), `translation_approach.md` and `tests/translation_approach/`. I modified no files.
 
-produced the following output; strikethrough indicates LLM output that I deemed
-incorrect or irrelevant.
+Most of the section is accurate:
+- The element list matches the handlers registered in `src/element_handler/mod.rs`, minus `head`, `body` and `html`.
+- The text alphabet matches `SYNTAX_CHARS` and `OTHER_CHARS`, and the block sequences match `SEQUENCES`.
+- The depth and child limits match the code.
+- The 13-byte prefix (byte 11 = 1) does select Faithful.
+- Every dictionary entry the spec lists is in `fuzz/htmd.dict`.
+- The seed counts match `make_seeds.py`: 46 table rows plus 142 turndown cases.
+- Hacker News (43,151 bytes) is under 64 KiB, and the Wikipedia page (1.4 MB) is over it.
 
-The reviewer found eight findings and two notes in the two sections, and all
-of them were accepted and applied.
+The problems:
+
+**round_trip_structured**
+
+1. **The scope count is almost never printed (false).** The spec says the target prints the count "with libFuzzer's statistics". In the code it is printed from an `atexit` callback, which runs only when libFuzzer exits normally (at `-runs` or `-max_total_time`). A crash, or stopping with Ctrl-C, ends libFuzzer through `_Exit`, so the callback never runs. The Running command `cargo +nightly fuzz run round_trip_structured` passes neither limit, so it runs until a crash or Ctrl-C and never prints the count. It also passes no `-print_final_stats=1`, so there are no libFuzzer statistics for the count to sit beside. The "most inputs are rejected" check therefore can't be carried out as written.
+
+2. **"Rejects" is ambiguous.** Out-of-scope inputs are counted but still run through the oracle, which redoes the scope check and runs the text check, and they return `Corpus::Keep`. Only inputs shorter than 13 bytes get `Corpus::Reject`. "The inputs the scope check rejects" reads like libFuzzer rejection; "classifies as out of scope" would be accurate.
+
+3. **Attribute values are not "drawn from the text below" (overstated).** `build_value` uses only `pick_char`, one to eight single characters. Values never contain the words (`lt`, `div`, `CDATA`…), the numbered `wN` words, or the block sequences. So an `href` or `title` can't spell `&lt;` or `<div` from a word.
+
+4. **The block-sequence placement sentence contradicts itself.** "Placed at the start of every text node: at the top, after a line ending in it, …" — a position after a line ending inside a node is not the start of that node. The code does both: one sequence at the start of each generated node, and one after each `\n` or `\r` inside it. Also:
+   - The given reason (htmd escapes only a node's first byte) doesn't cover the mid-node placement. Outside a literal context, `compress_whitespace` turns that line ending into a space, so the sequence doesn't start a Markdown line. The placement only matters inside `<pre>`, where `escape_pre_text_if_needed` checks the first character only.
+   - "Start of every text node" is about generator nodes. Adjacent generated text siblings merge into one node in `H0`, so the second node's sequence is mid-node there.
+
+5. ~~**"htmd escapes a text node's first byte whenever it can open a block" is inaccurate against `dom_walker.rs`.**~~
+   - ~~The first-byte test (`is_markdown_block_start`) covers only `= ~ > - + #` and digits.~~
+   - ~~For `1. A` and `1) A`, the backslash goes before the delimiter, not the first byte.~~
+   - ~~`*`, `_`, `` ` `` and `[` are escaped wherever they occur (`is_markdown_inline_special`), not by a first-byte rule.~~
+   - ~~Four spaces and `| a |` are not escaped at all; leading spaces are compressed or trimmed instead.~~
+   - ~~The check runs after whitespace compression and trimming, not on the node's raw first byte.~~
+
+6. **The numbered words don't reliably name the lost word (false as stated).** `text.rs` compares letters and digits with all whitespace and punctuation removed, then reads `w` followed by every digit after it. Digits are in the text alphabet, so `w1` followed later by the digit `5` with only spaces or punctuation between reads as `w15`. That can collide with a real `w15`, or name `w15` lost when only the `5` was dropped.
+
+7. ~~**The neighbors don't "stay the same" in the parsed tree.** They are fixed in the source only. Generated block elements or a stray `</p>` close the wrapper `<p>` early, so `<em>a</em>f</p>` ends up outside it, and the extra `</p>` creates an empty `<p></p>`. An unclosed start tag can swallow `<p>after</p>` or `<em>a</em>f`. The same goes for the 8-level and 6-child limits: they hold for the generator's tree, not `H0`. The wrapper adds a level, and unclosed tags pull later siblings in as children.~~
+
+8. ~~**"Comments." is underspecified.** `build_comment` drops every `-` and a leading `>`, and uses the character alphabet only (no words or sequences). So comments never contain `-`, and cases such as `<!-- a - b -->` or a comment ending in `-` are never generated. The spec should say so.~~
+
+9. ~~**"One node in about twelve" is muddled.**~~
+   - ~~In `build_broken`, the `<td>`-outside-a-table case and the text-in-`<table>`/`<tr>` case each apply only in the right context. Otherwise they fall back to a stray end tag, which is therefore over-represented.~~
+   - ~~Text directly inside `<table>` or `<tr>` and a `<td>` outside a table both also come from the ordinary text and element paths (4/12 and 1/39 of picks).~~
+   - ~~The `<td>` case is a full nested element, not "markup which does not nest".~~
+
+10. ~~**Minor: not every listed character is CommonMark syntax.** `%`, `{`, `}`, `$` and `|` are syntax only for the math or GFM table extensions, or not at all.~~
+
+**Seeds and dictionary**
+
+11. **"Every seed file starts with the [all-zero, translation_mode = 1] prefix" contradicts Triage step 1.** Triage adds a minimized input to `fuzz/seeds/<target>/` "with the option prefix it decoded from", which is generally non-zero. Also, `make_seeds.py` deletes every file in `fuzz/seeds/convert` and `fuzz/seeds/round_trip` before regenerating, so seeds added during triage are lost the next time it runs. The section doesn't mention this.
+
+12. **The seeds are not "written out as `tests/translation_approach/` does" (false in two ways).**
+   - Paragraphs row 3 ("`<br>`s-only paragraph (two or more)"): the tests expand it to two and three `<br>`s (`block_faithful.rs:92-95`). The seeds expand it to one and three, so the one-`<br>` seed is row 2's `<p><br></p>` again and the "two" case has no seed.
+   - The tests wrap inline-only rows in `<p>…</p>` (`inline_faithful.rs`, e.g. `<p>a<code>x<br>y</code>b</p>`). `make_seeds.py` writes the bare cell (`a<code>x<br>y</code>b`).
+
+13. **Hacker News "exceeds `-max_len` of the others".** "The others" is effectively only `round_trip`, since the structured target takes no seeds. The structured target's Running command sets no `-max_len` at all. The wording should name `round_trip` and its 4096.
+
+14. ~~**The section doesn't say which targets use the dictionary.** Running passes `-dict` only to `round_trip`. The dictionary is meaningless for `round_trip_structured`, whose bytes are generator choices, and isn't given to `convert`, even though it would help there.~~
+
+15. **The Lists exclusion conflicts with the Scope section.** Seeds leave out the Lists table because "that section is under development". Scope says lists are fully in scope despite the same status, and the oracle checks lists. The Lists rows are valid in-scope HTML, so there's no stated reason to leave them out of the seeds.
+
+16. ~~**Turndown cases are seeded with default options.** 48 of the 142 cases in `turndown_test_index.html` set `data-options`, and the seeds drop those options. That's consistent with the zero-prefix rule but not mentioned.~~
 
 #### Implementation review rounds
 
@@ -511,79 +561,99 @@ of them were accepted and applied.
 | 4 | 1 | The deep-nesting seeds carried the option prefix twice and two exceeded `-max_len`. Accepted and applied. |
 | 5 | 2 | The second-neighbor template emitted a stray end tag; the dictionary missed the `&gt;` and `&quot;` the generator emits. The former was dismissed as incorrect; the latter accepted and applied. |
 | 6 | 3 | The dictionary carried character references the spec does not list; the attribute builder misread the class selector; the CR-followed-by-LF branch was reported dead. Accepted findings applied where they were actionable. |
-| 7 | 3 | The dictionary carried character references the spec does not list; the attribute builder misread the class selector; the CR-followed-by-LF branch was reported dead. The class-branch fix was applied; the CR-LF path was verified live. |
+| 7 | 3 | The same three findings recurred; the class-branch fix was applied, the CR-LF path was verified live, and the dictionary's extra references were added to the spec. |
+| 8 | 4 | Numbered words end in a letter, the scope count is printed during the run, the seed wording no longer claims the tests' `<p>` wrapping, and a test comment was corrected. All accepted and applied. |
 
 #### Last implementation review
 
-Prompting Inkling 2 Small Free, high effort, with:
+Prompting Claude Opus 5.5, medium effort, with `Review fuzz/src/generator.rs, fuzz/fuzz_targets/round_trip_structured.rs, fuzz/htmd.dict and the seed files against the sections "Targets > round_trip_structured" and "Seeds and dictionary" of fuzzer/fuzzer-spec.md. Report only places where the code or data disagrees with the spec or is incorrect. Write numbered findings to review.md.` produced the following output; strikethrough indicates LLM output that I deemed incorrect or irrelevant.
 
-> Review fuzz/src/generator.rs, fuzz/fuzz_targets/round_trip_structured.rs,
-> fuzz/htmd.dict and the seed files against the sections "Targets >
-> round_trip_structured" and "Seeds and dictionary" of fuzzer/fuzzer-spec.md.
-> Report only places where the code or data disagrees with the spec or is
-> incorrect. Write numbered findings to review.md.
+##### Review: `round_trip_structured` and seeds/dictionary vs. `fuzzer/fuzzer-spec.md`
 
-produced the following output; strikethrough indicates LLM output that I deemed
-incorrect or irrelevant.
+Checked against "Targets > round_trip_structured" and "Seeds and dictionary":
+`fuzz/src/generator.rs`, `fuzz/fuzz_targets/round_trip_structured.rs`,
+`fuzz/htmd.dict`, `fuzz/seeds/convert/`, `fuzz/seeds/round_trip/` (and
+`fuzz/make_seeds.py`, which regenerates the seeds byte-identically).
 
-**Review: fuzz artifacts vs. fuzzer/fuzzer-spec.md**
+##### Findings
 
-Scope: the spec sections "Targets > round_trip_structured"
-(`fuzzer/fuzzer-spec.md:100-160`) and "Seeds and dictionary"
-(`fuzzer/fuzzer-spec.md:274-306`), checked against:
+1. **Numbered words are not delimited, so the text check cannot reliably name
+   the lost word** (`generator.rs`, `build_text`, the `byte % 8 == 6` arm).
 
-* `fuzz/src/generator.rs` (the `round_trip_structured` generator),
-* `fuzz/fuzz_targets/round_trip_structured.rs`,
-* `fuzz/htmd.dict`,
-* the seed files in `fuzz/seeds/convert` and `fuzz/seeds/round_trip`.
+   The spec inserts `w0`, `w1`, ... "so that the text check names the word
+   lost". `text.rs` concatenates only the alphanumerics of all text nodes and
+   `numbered_words` reads `w` followed by every digit after it. The generator
+   writes `w{n}` with nothing after it, and its alphabet is full of digits
+   (`0`-`9` in `OTHER_CHARS`, and every text node starts with a sequence, two of
+   which are `1. A` and `1) A`). Since whitespace and punctuation are dropped
+   before the words are read, any digit after a word with only
+   non-alphanumerics in between merges into it: a generated sample
+   `...-w0<caption ...>---é{!w1|22.<div...` reads as `w0`, `w122`. In 20 000
+   random inputs, `w0` is followed *directly* by a digit in 5.7 % of them; the
+   merged-across-punctuation rate is higher. A lost `w1` there is reported as
+   the nonexistent `w122` (or not at all when another merged word hides it).
+   Follow each word with a letter that cannot be a digit (e.g. `w{n}x`) or
+   otherwise terminate it.
 
-## Findings
+2. **The scope-rejected count is not printed in the documented run**
+   (`round_trip_structured.rs`, `atexit(print_rejected)`).
 
-1. **`fuzz/htmd.dict` carries character references the spec does not list.**
+   The spec requires the target to print the count "with libFuzzer's
+   statistics". It is printed only from an `atexit` handler, but libFuzzer
+   ends with `_Exit`, which skips `atexit`, on every exit except a bounded run
+   (`-runs`, `-max_total_time`): Ctrl-C (`Fuzzer::InterruptCallback`, "don't
+   perform any at-exit actions"), a crash/panic (`CrashCallback`), a timeout,
+   OOM, and a graceful-exit request (`libfuzzer-sys-0.4.13/libfuzzer/FuzzerLoop.cpp`
+   lines 237, 252, 260, 274, 307). The command in "Running",
+   `cargo +nightly fuzz run round_trip_structured`, is unbounded and ends with
+   Ctrl-C or a finding, so the count never appears there -- exactly when the
+   operator needs it to judge whether the run "checks the scope table, not
+   htmd". Print it from the target itself (e.g. periodically, every
+   power-of-two executions), not only at exit.
 
-   The "Seeds and dictionary" section enumerates what `fuzz/htmd.dict` holds:
-   every tag name the generator emits, the attributes, the two math classes, the
-   `class="language-` prefix, the comment delimiters, the character references
-   `&#10;`, `&#13;`, `&amp;`, `&lt;`, `&copy;`, `&nbsp;`, `&emsp;`, and the CommonMark
-   syntax characters and start-of-line sequences of the generator's text. The
-   dictionary as it now stands additionally holds `"&gt;"` and `"&quot;"`, which
-   are not part of that enumeration.
+3. **Inline `translation_approach.md` rows are seeded without the `<p>`
+   `tests/translation_approach/` wraps them in** (`fuzz/seeds/*/t03-*-r01..r02,r05`,
+   `t07-*-r01..r09`; `make_seeds.py`, `translation_approach_rows`).
 
-   The working tree differs from the committed dictionary by exactly these two
-   added lines (`+&gt;` after `&lt;`, `+&quot;` after `&emsp;`), and this is the
-   only uncommitted modification in the repository. The file therefore now
-   disagrees with the spec's list of the dictionary's contents.
+   The spec says the rows are "written out as `tests/translation_approach/`
+   does". Those tests convert the inline rows of the code-span and emphasis
+   tables inside a paragraph, e.g. `convert_faithful("<p>a<code>x<br><br><br>y</code>b</p>")`
+   and `convert_faithful("<p><em><br>a</em></p>")`
+   (`tests/translation_approach/inline_faithful.rs` lines 83-96, 164-248),
+   while the seeds hold the bare cell, e.g. `a<code>x<br><br><br>y</code>b` and
+   `<em><br>a</em>`. The seeds therefore start from a root-level inline run
+   rather than the paragraph the table rows describe and the tests check. If
+   the bare cell is intended, the spec's list of transformations should say so;
+   otherwise wrap these rows in `<p>`.
 
-2. **`fuzz/src/generator.rs` misuses the choice stream while building attributes.`
+4. **The `six_children` test's comment and setup disagree**
+   (`generator.rs`, `tests::six_children`).
 
-   `build_attrs` consumes one byte per attribute for presence, and then, when the
-   attribute is `class` with a non-empty value, consumes a further byte as the
-   `language-a` selector:
+   The comment says "One root element", but the first byte `1u8` is the root
+   count byte and gives `1 + 1 % 6 = 2` root nodes; the second only fails to
+   materialize because the bytes run out. Use `0u8` for one root node, or fix
+   the comment.
 
-   ```rust
-   if name == "class" && let Some(extra) = self.next() && extra % 4 == 0 { ... }
-   ```
+##### Checked, no finding
 
-   That extra byte is read from the same cursor that hands out the per-attribute
-   presence bytes, so it is really the presence byte of the next attribute in
-   `ATTRIBUTES`. The attribute stream therefore shifts whenever a `class` value is
-   non-empty, and the "alone or after another class" behavior is selected by a byte
-   which was never meant to be a selector.
-
-3. **`fuzz/src/generator.rs` never takes the CR-followed-by-LF branch.**
-
-   The branch meant to treat a CR followed by LF as one line ending and insert the
-   sequence from the byte after the CR never runs.
-
-## Checked, no finding
-
-* The generator's tag, attribute, comment, text and sequence sets against the
-  enumerations of the spec (elements, attributes, math classes, sequences,
-  depth and children limits, broken markup, neighbors).
-* The scope-rejection counting and printing of `fuzz/fuzz_targets/round_trip_structured.rs`.
-* The seed files and `fuzz/make_seeds.py`: the corpus regenerates byte-identically
-  from `translation_approach.md`, `tests/html/turndown_test_index.html`,
-  `examples/page-to-markdown/html/Hacker News.html` and the deep-nesting rule.
+* Element list (matches the built-in handlers in `src/element_handler/mod.rs`
+  minus `head`/`body`/`html`, plus the math spans and the handler-less tags),
+  attribute list and presence/empty/value split, `language-a` alone or after
+  another class, the text alphabet (all 27 syntax and 27 other characters are
+  reachable from `build_text` despite the `byte % 8` word selector), the six
+  words, the 16 sequences at the start of every text node and after LF/CR/CRLF,
+  depth 8 and 6 children, the one-in-twelve broken markup, and neighbors on
+  half of the inputs (`first % 4` in {0, 2}).
+* Option decoding of the target (`Target::RoundTrip`) and the scope count
+  itself.
+* `fuzz/htmd.dict` holds every item the spec lists.
+* Every seed starts with the 13-byte prefix `00..00 01 00` (byte 11 is
+  `translation_mode`, default `Pure`, so `1` decodes to `Faithful`); all seeds
+  are UTF-8; no `round_trip` seed exceeds 4096 bytes; `hacker-news.html`
+  (43 164 bytes) and the five deep-nesting seeds (at most 65 528 bytes) are in
+  `convert` only; the Lists table is excluded; `<br><br>...<br>` rows have a
+  one- and a three-`<br>` variant; table body-cell rows sit in the one-column
+  table; all 142 turndown cases are present.
 
 ### Arsen Alimzhan
 

@@ -254,11 +254,12 @@ impl Generator<'_> {
             }
             let mut value = self.build_value();
             // A `class` may also be `language-a`, alone or after another
-            // class, which a code block writes as its info string. The
-            // selector is consumed inside the class branch only.
+            // class, which a code block writes as its info string.
             if name == "class" {
                 let selector = self.next();
-                if let Some(extra) = selector && extra % 4 == 0 {
+                if let Some(extra) = selector
+                    && extra % 4 == 0
+                {
                     value = if extra % 8 == 0 {
                         format!("{value} language-a")
                     } else {
@@ -320,7 +321,7 @@ impl Generator<'_> {
             };
             match byte % 8 {
                 6 => {
-                    text.push_str(&format!("w{}", self.word));
+                    text.push_str(&format!("w{}x", self.word));
                     self.word += 1;
                 }
                 7 => text.push_str(WORDS[byte as usize / 8 % WORDS.len()]),
@@ -494,7 +495,8 @@ mod tests {
 
     #[test]
     fn six_children() {
-        // One root element with six broken children.
+        // Two root nodes: an element with six broken children, then nothing,
+        // since the input runs out.
         let choices = [
             1u8, 0x0B, 0x0B, 0, 0, 0, 0, 0, 0, 0, 0, 6, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
         ];

@@ -130,14 +130,15 @@ The generator builds a tree from the input bytes, then serializes it:
   `😀`), since a byte offset which splits one panics. Among them it inserts the
   words `lt`, `amp`, `copy`, `div`, `pre` and `CDATA`, so the text can spell
   character references and the starts of HTML blocks of types 1, 5 and 6, and the
-  numbered words `w0`, `w1`, ..., so that the text check names the word lost.
+  numbered words `w0x`, `w1x`, ..., ended by a letter so that a digit after
+  one does not join it, so that the text check names the word lost.
 * Sequences which are CommonMark block syntax at the start of a line: `1. A`,
   `1) A`, `* a`, `- a`, `+ a`, `---`, `***`, `___`, `===`, `# a`, `> a`,
   `` ``` ``, `~~~`, four spaces, `[a]: b` and `| a |`. htmd escapes a text
   node's first byte whenever it can open a block, without knowing whether the
-  node starts a line, so they are placed at the start of every text node: at
-  the top, after a line ending in it, as the first text after a `<br>`, and
-  inside a `<li>`, `<td>`, `<th>` or `<blockquote>`.
+  node starts a line, so they are placed at the start of every text node (at
+  the top, as the first text after a `<br>`, and inside a `<li>`, `<td>`,
+  `<th>` or `<blockquote>`) and after each line ending in it.
 * At most 8 levels deep and 6 children per element.
 * One node in about twelve replaced by markup which does not nest: a stray end
   tag (`</p>`, `</li>`), an unclosed start tag, `<td>` outside a table, or text
@@ -154,8 +155,8 @@ inside a `<p>`. A translation which is right on its own can still change how
 CommonMark reads its neighbors — a `<` which a later sibling closes, a
 delimiter run which pairs with a neighbor's — and only a neighbor shows it.
 
-The target counts the inputs the scope check rejects and prints the count with
-libFuzzer's statistics. A run in which most generated inputs are rejected
+The target counts the inputs the scope check classifies as out of scope and
+prints the count every 65536 inputs and at exit, after libFuzzer's statistics. A run in which most generated inputs are rejected
 checks the scope table, not htmd, and the generator is changed to produce fewer
 of them.
 
@@ -289,21 +290,19 @@ with no list-specific exclusion.
 Seeds and dictionary
 --------------------
 
-Every seed file starts with the 13-byte option prefix, all zero bytes except a
-1 for `translation_mode`, so that the `convert` target too starts from Faithful
-mode with the default options. These HTML seeds are for the `convert` and
+Every seed file starts with the 13-byte option prefix. The seeds made from the
+sources below use all zero bytes except a 1 for `translation_mode`, so that the
+`convert` target too starts from Faithful mode with the default options. These HTML seeds are for the `convert` and
 `round_trip` targets; the structured target reads the bytes as generator
 choices and gets none of them. The HTML comes from:
 
-* the *HTML in* column of every table in `translation_approach.md` except the
-  Lists table (that section is under development), one file per row, written
-  out as `tests/translation_approach/` does: `␣` and `⏎`
-  replaced by a space and a line feed, `<br><br>...<br>` expanded to one and to
+* the *HTML in* column of every table in `translation_approach.md`, one file
+  per row, with `␣` and `⏎` replaced by a space and a line feed, `<br><br>...<br>` expanded to two and to
   three `<br>`s, and a body-cell row placed in the one-column table the
   "Tables" section describes;
 * the cases of `tests/turndown_cases/turndown_test_index.html`;
 * `examples/page-to-markdown/html/Hacker News.html`, for the `convert` target
-  only, since it exceeds `-max_len` of the others. The Wikipedia page there
+  only, since it exceeds the 4096-byte `-max_len` of `round_trip`. The Wikipedia page there
   exceeds even the 64 KiB of `convert`, which libFuzzer would truncate, so it is
   not a seed;
 * for the `convert` target, deep nesting which mutation rarely builds:
@@ -313,7 +312,8 @@ choices and gets none of them. The HTML comes from:
 `fuzz/htmd.dict` lists every tag name the generator emits, the attributes
 above, `class="math math-inline"`, `class="math math-display"`,
 `class="language-`, `<!--`, `-->`, `<![CDATA[`, `&#10;`, `&#13;`, `&amp;`,
-`&lt;`, `&copy;`, `&nbsp;`, `&emsp;`, and the CommonMark syntax characters and
+`&lt;`, `&gt;`, `&quot;`, `&copy;`, `&nbsp;`, `&emsp;`, and the CommonMark
+syntax characters and
 start-of-line sequences of the generator's text.
 
 Triage

@@ -26,7 +26,7 @@ def slug(heading: str) -> str:
 
 def translation_approach_rows():
     """Yield (table number, slug, row number, variant, HTML) for every
-    `HTML in` cell of every table except the Lists one."""
+    `HTML in` cell of every table."""
     lines = (ROOT / "translation_approach.md").read_text(encoding="utf-8").splitlines()
     section = ""
     table_number = 0
@@ -36,9 +36,6 @@ def translation_approach_rows():
         if line.startswith("### "):
             section = line[4:].strip()
         if SEED_TABLE.match(line) and "HTML in" in line:
-            if section == "Lists":
-                index += 1
-                continue
             table_number += 1
             columns = [cell.strip() for cell in line.strip("|").split("|")]
             html_column = columns.index("HTML in")
@@ -55,7 +52,7 @@ def translation_approach_rows():
                 html = html.replace("␣", " ").replace("⏎", "\n")
                 marker = "<br><br>...<br>"
                 if marker in html:
-                    variants = [html.replace(marker, "<br>"), html.replace(marker, "<br><br><br>")]
+                    variants = [html.replace(marker, "<br><br>"), html.replace(marker, "<br><br><br>")]
                 else:
                     variants = [html]
                 if section == "Tables":
