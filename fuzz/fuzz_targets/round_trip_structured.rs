@@ -15,8 +15,8 @@ static REJECTED: AtomicU64 = AtomicU64::new(0);
 static EXECUTED: AtomicU64 = AtomicU64::new(0);
 static REGISTERED: Once = Once::new();
 
-/// Print the count in libFuzzer's `stat::` format. At exit the line follows
-/// the statistics of `-print_final_stats=1`.
+/// Print the count in libFuzzer's `stat::` format, after the statistics of
+/// `-print_final_stats=1`.
 extern "C" fn print_rejected() {
     eprintln!(
         "stat::round_trip_structured_scope_rejected: {} of {}",
@@ -41,11 +41,7 @@ fuzz_target!(|data: &[u8]| -> Corpus {
     if out_of_scope(&html, input.scripting_enabled).is_some() {
         REJECTED.fetch_add(1, Ordering::Relaxed);
     }
-    let executed = EXECUTED.fetch_add(1, Ordering::Relaxed) + 1;
-    // Also during the run, so a long run shows the proportion as it goes.
-    if executed == 1 || executed % 65536 == 0 {
-        print_rejected();
-    }
+    EXECUTED.fetch_add(1, Ordering::Relaxed);
     match oracle::round_trip(&html, input.options, input.scripting_enabled) {
         Ok(()) => Corpus::Keep,
         Err(message) => panic!("{message}"),
