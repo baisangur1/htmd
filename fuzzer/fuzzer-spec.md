@@ -274,23 +274,19 @@ with no list-specific exclusion.
 Seeds and dictionary
 --------------------
 
-The seeds and the dictionary are created together with the generator. Every
-seed file starts with the 13-byte option prefix, all zero bytes except a
+Every seed file starts with the 13-byte option prefix, all zero bytes except a
 1 for `translation_mode`, so that the `convert` target too starts from Faithful
 mode with the default options. These HTML seeds are for the `convert` and
 `round_trip` targets; the structured target reads the bytes as generator
 choices and gets none of them. The HTML comes from:
 
 * the *HTML in* column of every table in `translation_approach.md` except the
-  Lists table (that section is under development), one file per table and row
-  (named for the table and the row index, so the identical rows of the ATX
-  and Setex headings tables do not collide), written
+  Lists table (that section is under development), one file per row, written
   out as `tests/translation_approach_tests.rs` does: `␣` and `⏎`
   replaced by a space and a line feed, `<br><br>...<br>` expanded to one and to
-  three `<br>`s, yielding two files for such a row, and a body-cell row placed
-  in the one-column table the "Tables" section describes;
-* the cases of `tests/html/turndown_test_index.html` (the `<div class="input">`
-  payload of each case);
+  three `<br>`s, and a body-cell row placed in the one-column table the
+  "Tables" section describes;
+* the cases of `tests/html/turndown_test_index.html`;
 * `examples/page-to-markdown/html/Hacker News.html`, for the `convert` target
   only, since it exceeds `-max_len` of the others. The Wikipedia page there
   exceeds even the 64 KiB of `convert`, which libFuzzer would truncate, so it is
