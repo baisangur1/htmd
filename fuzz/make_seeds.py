@@ -97,11 +97,11 @@ def turndown_cases():
 
 
 def deep_nesting(open_tag: str, close_tag: str) -> bytes:
-    """The deepest repetition of `open_tag` which fits in 64 KiB."""
+    """The deepest repetition of `open_tag` which fits in 64 KiB, prefix included."""
     word = b"word"
     unit = (open_tag + close_tag).encode("utf-8")
     depth = (65536 - len(PREFIX) - len(word)) // len(unit)
-    return PREFIX + open_tag.encode("utf-8") * depth + word + close_tag.encode("utf-8") * depth
+    return open_tag.encode("utf-8") * depth + word + close_tag.encode("utf-8") * depth
 
 
 def write_seed(directory: Path, name: str, html: str | bytes) -> None:
