@@ -92,6 +92,7 @@ dependencies = [
  "libfuzzer-sys",
  "markup5ever_rcdom",
  "pulldown-cmark",
+ "pulldown-cmark-escape",
 ]
 
 [[package]]

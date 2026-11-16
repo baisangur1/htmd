@@ -13,6 +13,7 @@ htmd = { path = ".." }
 html5ever = "0.39"
 markup5ever_rcdom = "0.39"
 pulldown-cmark = "0.13.4"
+pulldown-cmark-escape = "0.11"
 
 [workspace]
 members = ["."]

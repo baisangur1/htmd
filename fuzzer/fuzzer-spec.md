@@ -163,8 +163,9 @@ Comparison
 ----------
 
 Both sides are parsed by html5ever as HTML fragments in the context of a
-`<body>` element, with the same `scripting_enabled` as the conversion, and
-compared as trees from the fragment root down: element names, attribute sets
+`<body>` element, with the same `scripting_enabled` as the conversion and in
+quirks mode, as `convert` parses a document without a doctype, and compared as
+trees below the fragment root: element names, attribute sets
 (order ignored), text, and comment data. `H1` is a fragment, since
 pulldown-cmark writes no doctype, `<html>` or `<body>`; `H0` is parsed the same
 way so that the two compare. The fragment parser ignores a doctype and the
@@ -180,15 +181,16 @@ only:
 1. **Implied paragraphs.** At the fragment root, in `<blockquote>` and in `<li>`, a maximal
    run of inline children on the input side
    matches the same run on the output side either as it is or wrapped in one
-   `<p>`. An inline child is a text node, a comment, or an element whose tag
-   name is in neither the type 1 nor the type 6 list of CommonMark HTML blocks.
+   `<p>`. An inline child is a text node or an element whose tag name is in
+   neither the type 1 nor the type 6 list of CommonMark HTML blocks. A comment
+   is not one, since in a block context it goes out as a type 2 HTML block.
    A `<p>` on the input side matches only a `<p>`, so the paragraphs row which
    keeps `<p><br></p>` still fails when the `<p>` is lost. The tables of "At
    the document root" and "Blockquotes" call the inserted `<p>` lossy but
    accepted.
 2. **URLs.** The `href` of an `<a>` and the `src` of an `<img>` on the input
-   side match the output value as it is or after the percent-encoding
-   pulldown-cmark's HTML writer applies to every destination it writes. The
+   side, as it is or after the percent-encoding pulldown-cmark's HTML writer
+   applies to every destination it writes, matches the output value. The
    `&amp;` and `&#x27;` which that encoding emits are taken as `&` and `'`,
    since attribute values are compared decoded. The value as it is matches an element htmd wrote as
    HTML, which pulldown-cmark passes through untouched.
@@ -196,16 +198,19 @@ only:
 ### Normalizer
 
 `N` erases the differences which `translation_approach.md` accepts and nothing
-else, and is applied alike to both sides. Each rule cites what accepts the
-difference. A difference with no citation is reported; it is never fixed by
-adding a rule here alone. In particular `N` keeps `<i>` apart from `<em>`,
-`<b>` apart from `<strong>`, and whitespace at the start or end of an emphasis
-inside it: `translation_approach.md` merges the names and moves the whitespace
-out for Pure mode only ("Emphasis and strong emphasis").
+else, and is applied alike to both sides, rule by rule in order. Each rule
+cites what accepts the difference. A difference with no citation is reported;
+it is never fixed by adding a rule here alone. In particular `N` keeps `<i>`
+apart from `<em>` and `<b>` apart from `<strong>`: `translation_approach.md`
+merges the names for Pure mode only ("Emphasis and strong emphasis").
 
 1. **Whitespace.** Outside `<pre>` and `<textarea>`, a run of ASCII whitespace
-   becomes one space; whitespace at the start and end of a block element's
-   content, and whitespace-only text between block siblings, is removed. HTML
+   becomes one space, and whitespace (as `str::trim_start` defines it, which
+   htmd uses) at the start or end of an `<em>`, `<i>`, `<strong>` or `<b>`
+   moves out of it (step 3 of the emphasis "Approach"). Then, outside them, at
+   the fragment root and in an element which is not an inline child
+   (see "Implied paragraphs"), whitespace at the start and end of the content
+   and next to a child which is not an inline child is removed. HTML
    renders such whitespace identically, and htmd collapses it by design ("All
    raw HTML inlines will have whitespace collapsed in their contents").
 2. **Code blocks.** A `<pre>` whose only child is a `<code>` loses one trailing
@@ -221,15 +226,17 @@ out for Pure mode only ("Emphasis and strong emphasis").
    such a row as the GFM header row, which pulldown-cmark reads back inside a
    `<thead>`; the "Tables" section asks only for "a header row of header cells,
    then one body".
-4. **List start.** An `<ol>` loses a `start` attribute whose value is `1`. An
+4. **List start.** An `<ol>` loses a `start` attribute whose value parses as
+   the integer 1. An
    ordered list starts at 1 by default in HTML, and pulldown-cmark writes
    `start` only for another number.
-5. **Comments.** A run of whitespace in comment data becomes one space ("For
+5. **Comments.** A run of ASCII whitespace in comment data becomes one space ("For
    simplicity, whitespace including newlines is collapsed, a lossy
    translation"). This also erases the difference for comments in block context,
    where it is not lossy; the fuzzer accepts that imprecision.
-6. **Math.** In a math span the text is compared after rule 1 and, for inline
-   math, after trimming; this is steps 2-3 of the "Math" section.
+6. **Math.** In a math span of the form the "Math" section describes, the text is compared after rule 1 and, for inline
+   math, after trimming the whitespace of step 3; this is steps 2-3 of the
+   "Math" section.
 
 ### Text
 
@@ -241,8 +248,13 @@ equal. Attribute values and comment data are not text nodes; whitespace and
 punctuation are left out, since htmd escapes, collapses and moves them by
 design. Only letters and digits are compared, so text nodes merged or split
 across a boundary compare equal. An input whose full-document parse (see
-"Scope") puts an element in `<head>` is exempt: the fragment parser keeps that
-element in the fragment, while `convert` sees it in the head. A difference is a
+"Scope") puts an element in `<head>` or holds a `<frameset>` is exempt: the
+fragment parser keeps that element or text in the fragment, while `convert`
+sees it in the head or drops it. So is an input which the "Scope" rows for
+`<script>` or `<style>` inline, for blank lines in a type 6 HTML block, for an
+end condition in a `<pre>`, for `<iframe>` to `<noscript>`, or for math holding
+`%` reject, since there `translation_approach.md` changes or does not specify
+the text. A difference is a
 finding unless
 `translation_approach.md` drops that text, in which case this section lists
 the case with a citation, as "Scope" does.
@@ -252,20 +264,21 @@ the case with a citation, as "Scope" does.
 An input is out of scope, and rejected before step 2 of `round_trip`, when
 `H0`, parsed as a full document as `convert` parses it, holds any of the
 following. Each is a case `translation_approach.md`
-calls lossy or unspecified; an entry is deleted once that document specifies
-the case.
+calls lossy or unspecified or does not specify, or one an upstream issue
+explains (see "Triage"); an entry is deleted once that document specifies the
+case.
 
 | Parsed DOM holds | Reason (`translation_approach.md`) |
 | ---------------- | -------------------------------- |
 | `<script>` or `<style>` in an inline context | Type 1 content: mis-translated inline |
-| `<pre>` or `<textarea>` in an inline context whose text holds a line ending | Type 1 content: "newlines … are lost" |
-| A comment, `<script>` or `<style>` holding a blank line inside an element whose tag name is in the type 6 list | Special case: unspecified |
-| Inside a `<pre>`, a comment, `<script>` or `<style>` holding `</pre>`, `</script>`, `</style>` or `</textarea>` followed by a line ending | Special case: unspecified |
-| `<iframe>`, `<noembed>` or `<noframes>` whose text holds anything but ASCII letters, digits and spaces; `<xmp>` or `<plaintext>`; `<noscript>` when scripting is enabled | Special case: unspecified (the paragraphs table specifies a plain `<iframe>`) |
+| `<pre>` or `<textarea>` in an inline context whose text holds whitespace other than single spaces | Type 1 content: "newlines … are lost"; raw HTML inlines have "whitespace collapsed" |
+| A comment, `<script>` or `<style>` holding a blank line inside an element written as a type 6 HTML block | Special case: unspecified |
+| Inside a `<pre>`, a `<pre>`, `<script>`, `<style>` or `<textarea>`, or a comment holding `</pre>`, `</script>`, `</style>` or `</textarea>` in any case, followed later in the `<pre>` by a line ending | Special case: unspecified |
+| `<iframe>` whose text holds anything but ASCII letters, digits and spaces; `<noembed>`, `<noframes>`, `<xmp>` or `<plaintext>`; `<noscript>` when scripting is enabled | Special case: unspecified (the paragraphs table specifies a plain `<iframe>`) |
 | `<template>` | Not specified: its content is not among its children |
-| A CR (U+000D) in text inside `<pre>` | Not specified: a code block cannot hold a CR, and no reference is decoded there |
-| A doctype, or any child of `<head>` | Special case: doctype dropped; head not specified |
-| A math span whose text holds `%` | "Math": comments are replaced, changing source text |
+| A CR (U+000D) in text inside `<pre>` or `<textarea>` | Not specified: the HTML parser reads it back as a line feed |
+| A doctype, any child of `<head>`, or a `<frameset>` | Special case: doctype dropped; head and frameset not specified |
+| A math span whose text holds an unescaped `%` | "Math": comments are replaced, changing source text |
 
 Lists are in scope. The "Lists" section of `translation_approach.md` is under
 development, so the round trip checks the list translation htmd implements,
@@ -307,25 +320,29 @@ Triage
 A failing input is minimized with `cargo fuzz tmin` and classified by where
 the difference arises:
 
-1. **Normalizer bug.** `N` or a matching rule hides or invents a difference
-   against the rules above. Fix `fuzz/src/lib.rs` and add the input to
-   `fuzz/seeds/`.
+1. **Fuzzer bug.** `N`, a matching rule, the text check, the scope check or
+   the generator hides or invents a difference against the rules above. Fix it
+   in `fuzz/src/` and add the HTML to `fuzz/seeds/<target>/` (the generated
+   HTML to `round_trip`).
 2. **Reference bug.** html5ever or pulldown-cmark disagrees with the HTML
-   standard or the CommonMark spec. Report it upstream and add a scope entry
+   standard, the CommonMark spec or the table and math specs it implements. Report it upstream and add a scope entry
    citing the issue.
 3. **htmd finding.** Anything else: the round trip lost or changed something
-   the comparison does not accept. Report it with the minimized input, the
-   options it decoded to, `M1`, and the subtrees which differ. A finding which
+   the comparison does not accept. Report it with the minimized input (for
+   the structured target, the generated HTML), the options it decoded to, `M1`, and the subtrees which differ. A finding which
    is fixed in htmd becomes a test in the `tests/` file matching the feature:
-   convert the input with `convert_faithful_options` and the decoded options,
-   and read the result back with `render_markdown` and
-   `ENABLE_TABLES | ENABLE_MATH` from `tests/common/mod.rs`. The `round_trip`
+   convert the input with the decoded options and `scripting_enabled`
+   (`convert_faithful_options` from `tests/common/mod.rs` when they are
+   Faithful mode with scripting enabled), and read the result back with
+   `render_markdown` from there and pulldown-cmark's
+   `ENABLE_TABLES | ENABLE_MATH`. The `round_trip`
    helper there renders with no extension and the default options, so it
    reproduces only inputs which need neither. A finding which is accepted as
-   lossy becomes a scope entry or a normalizer rule citing the text of
+   lossy becomes a scope entry, a "Text" exemption or a normalizer rule citing the text of
    `translation_approach.md` which accepts it.
 
-A crash or hang from the `convert` target is always case 3.
+A crash or hang inside `HtmlToMarkdown::convert` is case 3 unless it is in
+html5ever (case 2).
 
 Running
 -------

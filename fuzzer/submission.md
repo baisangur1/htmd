@@ -504,26 +504,226 @@ GitHub userid: alimzhan1709-droid
 
 #### Contributions
 
-(Contributions)
+Implemented the comparison with its normalizer, the text check and the scope check (`compare`, `text`, `scope`), revised the "Comparison", "Normalizer", "Text", "Scope" and "Triage" sections, and triaged the failures of all three targets into seven htmd findings.
 
 #### Specification review rounds
 
 | Round | Findings | Main changes made |
 | ----- | -------- | ----------------- |
+| 1 | 27 | Fragments parsed in quirks mode, comments taken out of inline runs, whitespace next to blocks and around emphasis normalized, text-changing scope rows exempted from the text check, and several scope rows and the Triage cases corrected. |
+| 2 | 23 | Inline children, whitespace classes and the math span form defined, the end-condition and math rows tightened, and html5ever crashes assigned to the reference-bug case. |
 
 #### Last specification review
 
-(LLM and prompt used)
+Prompting Claude Opus 5.5, high effort, with `Review only the sections "Comparison", "Comparison > Normalizer", "Comparison > Text", "Comparison > Scope" and "Triage" of fuzzer/fuzzer-spec.md. Check them for contradictions, ambiguities, and claims which are false for the htmd source code, html5ever, pulldown-cmark or translation_approach.md. Write numbered findings in the chat; do not create a review file.` produced the following output; strikethrough indicates LLM output that I deemed incorrect or irrelevant.
 
-(LLM output, possibly with strikethrough)
+I reviewed "Comparison", "Normalizer", "Text", "Scope" and "Triage" in `fuzzer/fuzzer-spec.md` against the htmd source, html5ever 0.39.0, pulldown-cmark 0.13.4 with pulldown-cmark-escape 0.11.0, and `translation_approach.md` (TA). I modified no files. Line numbers below are spec lines.
+
+**Comparison**
+
+1. ~~**Implied paragraphs has a weak or missing citation (L181-190).** The cited "At the document root" and "Blockquotes" rows only cover runs of `<br>`. Accepting a `<p>` around *any* inline run rests on TA's type-7 tradeoff paragraph (`<body>This is <em>really</em> important.</body>`, TA L107-115), which is not cited. For `<li>` there is no TA basis at all: TA Lists says "under development. Ignore it" (TA L348).~~
+
+2. **"Inline child" leaves comments ambiguous (L184-186).** A comment is neither a text node nor an element, so by the definition it breaks a run. The trailing clause only implies this. Normalizer rule 1 depends on the same definition, so the spec should say it explicitly.
+
+3. ~~**The `&#10;` sentence (L173-175) is true but hides two gaps.**~~
+   - ~~Outside `<pre>`/`<textarea>`, Normalizer rule 1 already makes LF and space equal. htmd never encodes line endings in text either (`walk_text` uses `compress_whitespace`), so the sentence only matters for attributes and HTML blocks.~~
+   - ~~`&#13;` behaves differently. In a link title or image alt that htmd writes as Markdown (TA Links requires `&#13;`), pulldown-cmark decodes it to a raw CR, and its `escape_html` leaves it unescaped. html5ever then reads that CR as LF. Expect mismatches the comparison will report that TA's prescription cannot fix.~~
+
+4. ~~**The fragment parse hides `<html>`/`<body>` attributes (L171-173).** In body mode `<html>` merges its attributes into the root, which is never compared, and `<body>` is ignored in the fragment case. So what htmd does with `<body class>` or `<html lang>` can never be observed. No Scope row records this blind spot.~~
+
+5. ~~**The URL rule cites nothing in TA (L191-196).** Its mechanics are correct: the `HREF_SAFE` table, `&amp;` and `&#x27;`. But it is a pulldown-cmark artifact and not one of TA's exceptions, which L4 says are the only source.~~
+
+**Normalizer**
+
+6. ~~**Its own principle (L200-203) is broken by four of its rules.**~~
+   - ~~Rule 2 cites a TA row that does not exist yet; the Code blocks table (TA L250-256) has no trailing-LF row.~~
+   - ~~Rule 4 cites the HTML default and pulldown-cmark behaviour, not TA, and TA Lists says ignore.~~
+   - ~~Rule 5 openly erases a difference TA does not accept ("where it is not lossy").~~
+   - ~~Rule 1's second clause is justified by rendering plus a quote about raw HTML inlines only.~~
+
+   ~~Triage (L338-339) also lets a lossy finding become a rule "citing TA" without requiring the TA change first, which L203 demands.~~
+
+7. **Rule 1's second clause has no `<pre>`/`<textarea>` exemption (L210-214).**
+   - `pre`, `textarea`, `script` and `style` are type 1, so they are not inline children. Leading and trailing whitespace of their content is therefore removed. This hides, for example, a lost second leading LF (html5ever drops only the first) or trailing spaces in `<pre>`.
+   - "HTML renders such whitespace identically" is false for elements that render inline but are on the type 6 list or are type 1 (`<iframe>`, `<textarea>`): `a <iframe>` and `a<iframe>` render differently.
+
+8. **The whitespace classes are undefined.**
+   - **Emphasis (rule 1):** `emphasis.rs` uses `trim_start`/`trim_end`, i.e. Unicode White_Space. That includes U+00A0, U+2003, U+3000 and U+2028, all of which the generator emits, plus VT and U+0085. If rule 1 moves only ASCII whitespace (as its first clause does), `<em> a</em>` is a false mismatch. CommonMark's "Unicode whitespace" would differ on U+2028 and VT.
+   - **Emphasis, unstated:** the order for nested emphasis and whether collapsing runs again after the move.
+   - **Comments (rule 5):** it says only "whitespace"; htmd uses ASCII whitespace (`is_ascii_whitespace`).
+
+9. ~~**Rule 2 makes two false claims (L215-221).** Rule 2 applies to both sides alike, so neither does harm.~~
+   - ~~"pulldown-cmark ends every code block with a line ending" is false for an empty block, which renders as `<pre><code></code></pre>`.~~
+   - ~~"Any other `<pre>` goes out verbatim" is false in an inline context, where `pre.rs` writes it as a raw HTML inline with its whitespace collapsed. Also, `<pre><code>` is not always a code block: an inline context, attributes on `<pre>`, or a non-`language-` class on `<code>` all make htmd serialize it.~~
+
+10. ~~**Rule 4 does not say which parser "parses as the integer 1" (L228).** htmd's `list.rs` does `parse::<i32>().unwrap_or(1).max(1)`, so `start="x"`, `"0"`, `"-3"` and `" 1"` all come out as 1 and pulldown-cmark omits `start`. HTML's integer rules read `start="x"` as default 1 too, but a strict reading reports it. `reversed` changes the default start (minor).~~
+
+11. **Rule 6 does not define "math span" (L236-238).** It should be TA's form: the class is the only attribute, and the span is empty or holds one text node. "After rule 1" is redundant, and it conflicts with rule 1's `<pre>` exclusion for a math span inside `<pre>`. Rule 1's collapsing also goes further than TA step 2, which replaces each newline individually.
+
+**Text**
+
+12. ~~**The `<head>` exemption's reason is false (L249-252).** htmd does not drop head content: `walk_element` keeps it and `head_body_handler` walks it. In Faithful mode `<title>`, `<script>` and `<style>` are serialized with their letters intact. Only `<frameset>` drops text. As written, the exemption switches the check off for every input that starts with `<script>`, `<style>`, `<title>`, `<meta>` and so on. It also cites no TA text, contrary to L255-257.~~
+
+13. **"The Scope rows for … raw text elements" names no row (L252-254).** Row 5 holds RAWTEXT/PLAINTEXT elements, while HTML's "raw text elements" are `script` and `style`. Row 2 (`pre`/`textarea` inline) changes only whitespace, so "TA changes the text" is false there.
+
+14. **Some unspecified rows are not exempted, yet can lose letters.**
+    - After row 4 (a type 1 block ending early) or row 3 (a type 6 block split at a blank line), the remainder is parsed as Markdown. A line like `[a]: b` then becomes a link reference definition and its letters vanish. Reporting this contradicts L4.
+    - Row 6 (`<template>`): the spec does not say whether `template_contents` is read.
+
+**Scope**
+
+15. ~~**Rows 1-3 depend on htmd's decisions, not on the parsed DOM.** The table heading says "Parsed DOM holds", but "inline context" and "an element written as a type 6 HTML block" are translation decisions. For example, a `<p>` becomes an HTML block only when it starts with an `<iframe>` or a lone tag, and a `<table>` only when it is not GFM-shaped. The spec should say whether the checker re-derives these decisions or over-approximates (e.g. any type 6 ancestor). Inside a block written verbatim, TA says the classification "does not apply" (TA L104), so `<div><span><script>` is ambiguous.~~
+
+16. **Row 4 omits a nested `<pre>`.** html5ever allows `<pre>` inside `<pre>`, and the inner `</pre>` ends the outer type 1 block: `<pre>a<pre>b</pre>⏎c</pre>`. TA L163-166 covers this ("type 1-5 inside type 1"). CommonMark matches end conditions case-insensitively, so a comment holding `</PRE>` should count too.
+
+17. ~~**"Lists are in scope" (L280-282) contradicts the criteria.** It conflicts with L4 and with the Scope intro ("or does not specify"), since TA Lists says ignore. This is the same gap as the `<li>` part of finding 1.~~
+
+18. **Row 9 is broader than TA.** Only an unescaped `%` starts a comment (TA L662; `span.rs` `math_source`), so `\%` should not trigger it. Row 8 is also wide: html5ever puts any leading `<script>`, `<style>`, `<meta>`, `<link>`, `<base>`, `<noscript>` or `<template>` into `<head>`, and whitespace or comments inside `<head>` count as children.
+
+**Triage**
+
+19. ~~**The seed format conflicts (L320-323 vs L287-289).** Every seed must start with the 13-byte prefix of all zeros except translation_mode. A failing input's own options differ, and the spec does not say whether to keep its prefix (breaking the Seeds rule) or reset it (losing the options that triggered the bug). Generated HTML for `round_trip` needs a prefix too, and may exceed `-max_len=4096`.~~
+
+20. **Crash ownership contradicts itself (L324-326, L341).** A crash or hang in html5ever's `parse_document` happens inside `convert`, so L341 makes it "always case 3". Case 2 and the non-goals say html5ever bugs go upstream. Crashes or hangs in the harness's own steps are unclassified: the fragment parse, `render`, the comparison (e.g. pulldown-cmark slowness on htmd output, or recursion on deep trees).
+
+21. ~~**Case 2's fix only works for round-trip failures.** "Add a scope entry" cannot absorb a reference bug that shows up in the text check, or in the `convert` target, which has no scope check and whose text exemptions are a closed list.~~
+
+22. ~~**The `tests/common` helper descriptions are accurate but miss two points (L332-337).**~~
+    - ~~`Options::default()` has `preformatted_code: false`, while the round-trip targets pin it to `true`. So even an all-zero prefix does not match the `round_trip` helper.~~
+    - ~~`convert_faithful_options` forces Faithful mode anyway, so the only real condition is scripting being enabled (the builder default).~~
+
+**Informational**
+
+23. ~~**The `<i>`/`<b>` rule will produce a known mismatch at once.** Keeping `<i>` apart from `<em>` matches TA. But htmd in Faithful mode writes `<i>` as `*` and `<b>` as `**` (`italic_handler`/`bold_handler` in `element_handler/mod.rs`), which read back as `<em>`/`<strong>`. Every plain generated `<i>` or `<b>` will fail from the first run. The spec may want to say this is expected.~~
+
+**Two htmd bugs found along the way (not spec issues)**
+- `element_util.rs` `serialize_opts()` always uses `SerializeOpts::default()`, which has `scripting_enabled: true`. With scripting disabled, `<noscript>` text such as `&lt;b&gt;` is written unescaped and reads back as an element. Row 5 does not exclude this, so it will be reported, correctly.
+- `list.rs` turns `start="0"` into 1 via `.max(1)`.
+
+**Checked and found correct:**
+- html5ever parses in quirks mode without a doctype, its fragment API accepts `quirks_mode`, and the fragment parser ignores doctype/`<html>`/`<head>`/`<body>`.
+- pulldown-cmark always writes `<tbody>` after `</thead>`, writes `start` only when it is not 1, and percent-encodes destinations with `&amp;`/`&#x27;` as described.
+- `code.rs` drops exactly one trailing LF.
+- htmd's and pulldown-cmark's type 6 lists include `search`.
+- In block context a comment is written as a framed type 2 block.
+- `render_markdown` and `round_trip` match their descriptions.
 
 #### Implementation review rounds
 
 | Round | Findings | Main changes made |
 | ----- | -------- | ----------------- |
+| 1 | 9 | An implied paragraph wraps only a whole inline run, URL decoding and prefixed attribute names were fixed, and the math and head scope rows follow the spec exactly. |
+| 2 | 4 | The list `start` attribute is read by the HTML rules for parsing integers. |
 
 #### Last implementation review
 
-(LLM and prompt used)
+Prompting Claude Opus 5.5, high effort, with `Review fuzz/src/compare.rs, fuzz/src/text.rs and fuzz/src/scope.rs against the sections "Comparison", "Normalizer", "Text" and "Scope" of fuzzer/fuzzer-spec.md. Report only places where the code disagrees with the spec or is incorrect, including any normalization the spec does not list. Write numbered findings to review.md.` produced the following output; strikethrough indicates LLM output that I deemed incorrect or irrelevant.
 
-(LLM output, possibly with strikethrough)
+##### Review: comparison, normalizer, text and scope vs. fuzzer/fuzzer-spec.md
+
+Scope of this review: `fuzz/src/compare.rs`, `fuzz/src/text.rs` and
+`fuzz/src/scope.rs` in the working tree, checked against the spec sections
+"Comparison", "Normalizer", "Text" and "Scope" (`fuzzer/fuzzer-spec.md:162-285`).
+Only disagreements and incorrect code are listed. Each finding was confirmed
+through the crate's public `compare`, `out_of_scope` and `check_text`, and
+through the round trip htmd -> `render` with Faithful options. The crate's 39
+unit tests pass.
+
+These earlier problems are fixed and no longer reported: the `&amp;`/`&#x27;`
+decoding order in "URLs", the dropped attribute prefixes, the partial-run `<p>`
+in "Implied paragraphs", row 8 accepting a span holding an element or comment,
+and row 7 skipping whitespace in `<head>`.
+
+##### Scope
+
+1. ~~**Rows 0-2 get the context wrong wherever htmd serializes a translatable~~
+   ~~element as an HTML block** (`scope.rs:52-65`, `163-166`).~~
+   ~~`Context::of_children` always gives a block context to `blockquote`, `ol`,~~
+   ~~`ul`, `li` and the table sections, and always gives an inline context to~~
+   ~~`h1`-`h6`, `p`, `td` and `th`. But htmd writes the whole element as a type 6~~
+   ~~HTML block in several cases. `translation_approach.md` says that the~~
+   ~~inline/block classification "does not apply to these contents":~~
+   * ~~an element with extra attributes (`serialize_if_extra_attrs_or_inline!`~~
+     ~~in the blockquote, list, li, heading and paragraph handlers);~~
+   * ~~a paragraph which starts with a type 1-6 raw HTML inline ("Paragraphs");~~
+   * ~~a table which is not GFM-shaped: one with no header row, a `<caption>`, a~~
+     ~~`<tfoot>`, a header of `<td>` cells, and so on ("Tables"). `tfoot` is even~~
+     ~~in the block list, although a table with a `<tfoot>` always goes out as~~
+     ~~HTML.~~
+
+   ~~As a result, row 2 never fires inside these elements, and the input is~~
+   ~~reported, although the spec leaves the case unspecified. Each of the~~
+   ~~following stays in scope, and its comment or style comes back as~~
+   ~~`a⏎&#10;b`:~~
+   * ~~`<blockquote id="x"><!--a⏎⏎b-->z</blockquote>`~~
+   * ~~`<ul class="x"><li><!--a⏎⏎b-->z</li></ul>` and~~
+     ~~`<ul><li id="x"><!--a⏎⏎b-->z</li></ul>`~~
+   * ~~`<h1 id="x"><!--a⏎⏎b-->z</h1>` and `<p id="x"><!--a⏎⏎b-->z</p>`~~
+   * ~~`<p><iframe>a</iframe><!--a⏎⏎b-->z</p>`~~
+   * ~~`<table><tr><td>h</td></tr><tr><td><!--a⏎⏎b-->z</td></tr></table>`,~~
+     ~~the same with a `<caption>`, and~~
+     ~~`<table><tfoot><tr><td><!--a⏎⏎b-->z</td></tr></tfoot></table>`~~
+
+   ~~Row 2 is also a "Text" exemption, so the text check goes wrong as well.~~
+   ~~`<blockquote id="x"><script>a⏎⏎b</script>z</blockquote>` is reported as~~
+   ~~lost text: the input gives `abz` and the output gives `a10bz`.~~
+
+   ~~The same cause makes rows 0 and 1 too wide. They reject inputs which go out~~
+   ~~inside an HTML block and round-trip unchanged:~~
+   ~~`<p><script>a&lt;b</script>c</p>`, `<p><textarea>a⏎b</textarea></p>`,~~
+   ~~`<table><tr><td><pre>a  b</pre></td></tr></table>` (no header row), and~~
+   ~~`<table><caption>c</caption><tr><th>h</th></tr><tr><td><script>x&lt;</script></td></tr></table>`.~~
+   ~~Two unit tests assert this wrong result: the textarea and table cases in~~
+   ~~`preformatted_inline_with_whitespace` (`scope.rs:277-281`).~~
+
+##### Normalizer
+
+2. ~~**Rule 3 removes an empty `<tbody>` in every table, and ignores its~~
+   ~~attributes** (`compare.rs:339-348`). The spec says "In a `<table>` with no~~
+   ~~`<thead>`, a first row ... moves into a new `<thead>` before it, and an~~
+   ~~empty `<tbody>` right after a `<thead>` is removed". The code runs the~~
+   ~~removal on every table, after any `<thead>`, whether or not a row moved, and~~
+   ~~it ignores the `<tbody>`'s attributes. The literal reading cannot be the~~
+   ~~intent. pulldown-cmark ends a header-only table with `<tbody>⏎</tbody>`, so~~
+   ~~if the removal ran only in tables with no `<thead>`, the output side would~~
+   ~~keep its empty `<tbody>` and `<table><tr><th>h</th></tr></table>` would fail.~~
+   ~~The removal is needed for an input which has a `<thead>` and no `<tbody>`.~~
+   ~~As written, though, it is a normalization the spec does not list, and it~~
+   ~~hides differences nothing accepts. Confirmed: each pair below matches.~~
+   * ~~`<table><thead><tr><td>h</td></tr></thead><tbody></tbody></table>` (a~~
+     ~~`<td>` header, so htmd writes it as HTML) against the same table without~~
+     ~~the `<tbody>`.~~
+   * ~~`<table><thead><tr><th>h</th></tr></thead><tbody id="x"></tbody></table>`~~
+     ~~against the same table without the `<tbody>`. The attribute is lost too.~~
+   * ~~`<table><tr><th>h</th></tr><tr><td>d</td></tr></table>` against an~~
+     ~~output which adds an empty `<tbody>` between the `<thead>` and the body.~~
+
+   ~~The spec should say where the removal applies. The code should then keep a~~
+   ~~`<tbody>` which has attributes, and keep one which is not the table's last~~
+   ~~child.~~
+
+3. **Rule 4 uses a parser the spec does not name** (`compare.rs:292-298`).
+   The spec says "a `start` attribute whose value parses as the integer 1",
+   and gives HTML's default as the reason. The code applies `trim_ascii` and
+   then `i64::from_str`. That accepts ` 1 ` and `+1`, which a strict Rust parse
+   rejects. It also rejects `1.`, `1x` and `1. A`, which HTML's "rules for
+   parsing integers" read as 1, so the list renders the same. For example,
+   `<ol start="1. A"><li>a</li></ol>` is reported, and the generator can draw
+   such a value. The spec should name the parser, and the code should follow
+   it. With HTML's rules, the leading-whitespace and trailing-garbage handling
+   both follow.
+
+##### Text
+
+4. ~~**The lost numbered word is misnamed or missing** (`text.rs:25-29`,~~
+   ~~`50-62`). Words are taken from the joined letters and digits, so a digit~~
+   ~~right after `wN`, whether in the same text node or the next one, joins the~~
+   ~~word. The generator often places a digit after a word (`generator.rs:319-334`).~~
+   ~~Confirmed: `check_text("<p>w1 2</p>", "<p>2</p>")` names `w12`, and~~
+   ~~`<p>w3</p><p>4</p>` against `<p>4</p>` names `w34`. Neither word exists.~~
+   ~~A word which is repeated or moved, not dropped, gets no name at all: `<p>w1~~
+   ~~w2</p>` against `<p>w2 w1</p>` gives `None`. Goal 5 counts moved and~~
+   ~~repeated text as lost, and the spec adds the words "so that the text check~~
+   ~~names the word lost". Taking the words from each text node before joining~~
+   ~~fixes the misnaming. Comparing the two word sequences in order would also~~
+   ~~name a moved or repeated word.~~
