@@ -10,7 +10,7 @@ Draft submission
 
 ### Baisangur Yunussov
 
-GitHub userid: b_yunussov (also baisangur1 and Yemeth)
+GitHub userid: baisangur1 (also Yemeth)
 
 #### Contributions
 
@@ -23,7 +23,7 @@ into one document and fixed the remaining inconsistencies.
 The following summarizes LLM output from the prompt "Verify that you can build
 and run the project in the current git repo."
 
-**Model:** not recorded.
+**Model:** Claude Opus 5.5, medium effort.
 
 **Response:** `cargo build`, `cargo clippy -- --deny warnings` and `cargo test`
 passed. The full response was not recorded.
@@ -204,7 +204,7 @@ cargo-fuzz crate.
 The following summarizes LLM output from the prompt "Verify that you can build
 and run the project in the current git repo."
 
-**Model:** not recorded.
+**Model:** GPT-6 Luna.
 
 **Response:**
 
@@ -357,7 +357,7 @@ Final submission
 
 ### Baisangur Yunussov
 
-GitHub userid: b_yunussov (also baisangur1 and Yemeth)
+GitHub userid: baisangur1 (also Yemeth)
 
 #### Contributions
 
@@ -453,6 +453,7 @@ Checked against `src/`, `fuzz/`, cargo-fuzz 0.13.2, libfuzzer-sys 0.4.13, html5e
 | ----- | -------- | ----------------- |
 | 1 | 4 | Inputs too short or not valid UTF-8 return `Corpus::Reject`, so libFuzzer keeps them out of the corpus. |
 | 2 | 3 | The exponential emphasis serialization and the stack overflows on deep nesting were fixed in htmd with regression tests, and the quadratic time on deep lists was traced to instrumentation. |
+| 3 | 3 | No changes: the seeds and dictionary reported missing had since been committed, and the text check's thread and the place of `render` do not contradict the spec. |
 
 #### Last implementation review
 
@@ -555,7 +556,7 @@ The problems:
 
 | Round | Findings | Main changes made |
 | ----- | -------- | ----------------- |
-| 1 | 4 | The deep-nesting seeds carried the option prefix twice and two exceeded `-max_len`; the math spans could take a duplicate `class`; the depth test wired the wrong structure; the rejected-input count was missing for short runs. All accepted and applied. |
+| 1 | 4 | The first deep-nesting seeds were built wrong (a doubled option prefix, files over the 64 KiB limit); the math spans could take a duplicate `class`; the depth test wired the wrong structure; the rejected-input count was missing for short runs. All accepted and applied. |
 | 2 | 3 | The 1/12 replacement covered only two of the four listed forms; no block sequence followed a CR; a void tag could be chosen as an unclosed start tag. All accepted and applied. |
 | 3 | 4 | The `<td>` could nest a ninth level; a sequence could split a CRLF pair; a comment could start with `>`; the `<td>` and table-text branches lacked parent context. All accepted and applied. |
 | 4 | 1 | The deep-nesting seeds carried the option prefix twice and two exceeded `-max_len`. Accepted and applied. |
@@ -661,7 +662,7 @@ GitHub userid: alimzhan1709-droid
 
 #### Contributions
 
-Implemented the comparison with its normalizer, the text check and the scope check (`compare`, `text`, `scope`), revised the "Comparison", "Normalizer", "Text", "Scope" and "Triage" sections, and triaged the failures of all three targets into eight htmd findings.
+Implemented the comparison with its normalizer, the text check and the scope check (`compare`, `text`, `scope`), and revised the "Comparison", "Normalizer", "Text", "Scope" and "Triage" sections.
 
 #### Specification review rounds
 
